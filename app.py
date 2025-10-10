@@ -12,7 +12,7 @@ CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
 TENANT_ID = st.secrets["TENANT_ID"]
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 SCOPE = ["User.Read"]
-REDIRECT_URI = st.secrets.get("REDIRECT_URI", "http://localhost:8501")
+REDIRECT_URI = st.secrets.get("REDIRECT_URI", "REDIRECT_URI")
 
 BASE_PATH = "./data"
 os.makedirs(BASE_PATH, exist_ok=True)
@@ -367,3 +367,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
