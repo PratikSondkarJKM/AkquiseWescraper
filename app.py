@@ -111,7 +111,14 @@ def login_button():
 def auth_flow():
     params = st.query_params
     if "code" in params:
-        token_data = fetch_token(params["code"][0])
+        st.write("params[code]:", params["code"])
+        st.write("REDIRECT_URI:", REDIRECT_URI)
+        st.write("CLIENT_ID:", CLIENT_ID)
+        st.write("TENANT_ID:", TENANT_ID)
+        st.write("SCOPE:", SCOPE)
+        code = params["code"][0]
+        token_data = fetch_token(code)
+        st.write("Token response:", token_data)
         if "access_token" in token_data:
             st.session_state["user_token"] = token_data["access_token"]
             st.query_params.clear()
@@ -373,6 +380,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
