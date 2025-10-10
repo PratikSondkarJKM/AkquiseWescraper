@@ -11,7 +11,7 @@ CLIENT_ID = st.secrets["CLIENT_ID"]
 CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
 TENANT_ID = st.secrets["TENANT_ID"]
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
-SCOPE = ["https://graph.microsoft.com/User.Read", "openid", "offline_access"]
+SCOPE = ["User.Read"]
 REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://akquisescraper.streamlit.app/")
 
 BASE_PATH = "./data"
@@ -380,6 +380,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
