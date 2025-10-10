@@ -116,10 +116,16 @@ def auth_flow():
             st.session_state["user_token"] = token_data["access_token"]
             st.query_params.clear()
             st.experimental_rerun()
+        elif "error" in token_data:
+            st.error(f"MSAL error: {token_data.get('error')}")
+            st.error(f"Description: {token_data.get('error_description')}")
+            st.stop()
         else:
             st.error("Microsoft login failed. Please try again.")
             st.stop()
-    if not st.session_state.get("user_token"):
+    if st.session_state.get("user_token"):
+        return True
+    else:
         login_button()
         st.stop()
     return True
@@ -367,6 +373,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
