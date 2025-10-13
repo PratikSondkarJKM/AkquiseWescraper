@@ -111,6 +111,12 @@ def login_button():
 def auth_flow():
     params = st.query_params
     if "code" in params:
+        received_code = params["code"][0].split("&")[0]
+        st.write("Received code:", received_code)
+        st.write("Using redirect URI:", REDIRECT_URI)
+        st.write("MSAL client ID:", CLIENT_ID)
+        token_data = fetch_token(received_code)
+        st.write("Token response:", token_data)
         # Only perform token exchange if not already done in session
         if not st.session_state.get("user_token"):
             code = params["code"][0].split("&")[0]  # Extract code cleanly
@@ -378,6 +384,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
