@@ -1,3 +1,4 @@
+import streamlit as st
 import os, json, re, requests, time
 from datetime import datetime, timedelta
 from lxml import etree
@@ -11,7 +12,7 @@ CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
 TENANT_ID = st.secrets["TENANT_ID"]
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 SCOPE = ["User.Read"]
-REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://akquisescraper.streamlit.app/oauth2callback")
+REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://akquisescraper.streamlit.app/")
 
 BASE_PATH = "./data"
 os.makedirs(BASE_PATH, exist_ok=True)
@@ -115,8 +116,7 @@ def auth_flow():
         st.write("CLIENT_ID:", CLIENT_ID)
         st.write("TENANT_ID:", TENANT_ID)
         st.write("SCOPE:", SCOPE)
-        raw = params["code"][0]
-        code = raw.split("&")[0]
+        code = params["code"][0]
         token_data = fetch_token(code)
         st.write("Token response:", token_data)
         if "access_token" in token_data:
@@ -380,4 +380,11 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
 
