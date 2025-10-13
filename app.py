@@ -11,6 +11,7 @@ CLIENT_ID = st.secrets["CLIENT_ID"]
 CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
 TENANT_ID = st.secrets["TENANT_ID"]
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
+SCOPE = ["openid"]
 REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://akquisescraper.streamlit.app/")
 
 BASE_PATH = "./data"
@@ -23,6 +24,7 @@ PAYLOAD_BASE = {
              "AND (classification-cpv IN (71541000 79421000)) "
              "AND (notice-type IN (pin-cfc-standard pin-cfc-social qu-sy cn-standard cn-social subco cn-desg))",
     "fields": ["publication-number","links"],
+    "scope": "ACTIVE",
     "checkQuerySyntax": False,
     "paginationMode": "PAGE_NUMBER",
     "page": 1,
@@ -39,12 +41,12 @@ def build_msal_app():
 
 def fetch_token(auth_code):
     msal_app = build_msal_app()
-    return msal_app.acquire_token_by_authorization_code(auth_code, redirect_uri=REDIRECT_URI)
+    return msal_app.acquire_token_by_authorization_code(auth_code, scopes=SCOPE, redirect_uri=REDIRECT_URI)
 
 def login_button():
     jkm_logo_url = "https://www.xing.com/imagecache/public/scaled_original_image/eyJ1dWlkIjoiMGE2MTk2MTYtODI4Zi00MWZlLWEzN2ItMjczZGM2ODc5MGJmIiwiYXBwX2NvbnRleHQiOiJlbnRpdHktcGFnZXMiLCJtYXhfd2lkdGgiOjMyMCwibWF4X2hlaWdodCI6MzIwfQ?signature=a21e5c1393125a94fc9765898c25d73a064665dc3aacf872667c902d7ed9c3f9"
     msal_app = build_msal_app()
-    auth_url = msal_app.get_authorization_request_url(redirect_uri=REDIRECT_URI, response_type="code", response_mode="query")
+    auth_url = msal_app.get_authorization_request_url(SCOPE, redirect_uri=REDIRECT_URI, response_type="code", response_mode="query")
     st.markdown("""
     <style>
     .block-container { padding: 0 !important; max-width: 100vw !important; }
@@ -113,6 +115,7 @@ def auth_flow():
         st.write("REDIRECT_URI:", REDIRECT_URI)
         st.write("CLIENT_ID:", CLIENT_ID)
         st.write("TENANT_ID:", TENANT_ID)
+        st.write("SCOPE:", SCOPE)
         code = params["code"][0]
         token_data = fetch_token(code)
         st.write("Token response:", token_data)
@@ -377,9 +380,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
 
 
 
