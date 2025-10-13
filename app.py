@@ -1,11 +1,18 @@
-import streamlit as st
 import os, json, re, requests, time
 from datetime import datetime, timedelta
 from lxml import etree
 from io import BytesIO
 import openpyxl
+from msal import ConfidentialClientApplication
 
 # ------------------- CONFIGURATION -------------------
+CLIENT_ID = st.secrets["CLIENT_ID"]
+CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
+TENANT_ID = st.secrets["TENANT_ID"]
+AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
+SCOPE = ["User.Read"]
+REDIRECT_URI = st.secrets.get("REDIRECT_URI", "https://akquisescraper.streamlit.app/oauth2callback")
+
 BASE_PATH = "./data"
 os.makedirs(BASE_PATH, exist_ok=True)
 JSON_FILE = os.path.join(BASE_PATH, "ted_results.json")
@@ -22,6 +29,113 @@ PAYLOAD_BASE = {
     "page": 1,
     "limit": 100
 }
+
+# ------------------- AUTHENTICATION -------------------
+def build_msal_app():
+    return ConfidentialClientApplication(
+        client_id=CLIENT_ID,
+        authority=AUTHORITY,
+        client_credential=CLIENT_SECRET
+    )
+
+def fetch_token(auth_code):
+    msal_app = build_msal_app()
+    return msal_app.acquire_token_by_authorization_code(auth_code, scopes=SCOPE, redirect_uri=REDIRECT_URI)
+
+def login_button():
+    jkm_logo_url = "https://www.xing.com/imagecache/public/scaled_original_image/eyJ1dWlkIjoiMGE2MTk2MTYtODI4Zi00MWZlLWEzN2ItMjczZGM2ODc5MGJmIiwiYXBwX2NvbnRleHQiOiJlbnRpdHktcGFnZXMiLCJtYXhfd2lkdGgiOjMyMCwibWF4X2hlaWdodCI6MzIwfQ?signature=a21e5c1393125a94fc9765898c25d73a064665dc3aacf872667c902d7ed9c3f9"
+    msal_app = build_msal_app()
+    auth_url = msal_app.get_authorization_request_url(SCOPE, redirect_uri=REDIRECT_URI, response_type="code", response_mode="query")
+    st.markdown("""
+    <style>
+    .block-container { padding: 0 !important; max-width: 100vw !important; }
+    .center-root {
+        min-height: 100vh; width: 100vw;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        background: linear-gradient(120deg, #eaf6fb 0%, #f3e9f5 100%);
+    }
+    .jkm-logo {
+        height: 72px; margin-bottom: 14px; border-radius: 14px; box-shadow: 0 2px 14px rgba(70,80,120,0.08);
+        background: #fff; display: block;
+    }
+    .app-title {
+        font-family: 'Segoe UI', Arial,sans-serif;
+        font-size: 2.3em; text-align: center; font-weight: 800; color: #283044; margin-bottom: 10px; margin-top: 4px;
+    }
+    .welcome-text {
+        font-size: 1.07em; color: #505A69; margin-bottom: 22px; margin-top: 0; text-align: center;
+    }
+    .login-card {
+        width: 375px; padding: 38px 34px 31px 34px; background: #fff; border-radius: 18px;
+        box-shadow: 0 8px 32px rgba(50,72,140,.13); text-align: center; margin-top: 6px;
+    }
+    .microsoft-logo {
+        height: 44px; margin-bottom: 16px; display:block; margin-left:auto; margin-right:auto;
+    }
+    .login-button {
+        display: block; width: 100%; padding: 17px 0 14px 0; margin: 28px 0 18px 0; font-size: 17px;
+        background-color: #0078d7; color: #fff !important; border: none; border-radius: 7px;
+        cursor: pointer; text-decoration: none; font-weight: 600; transition: background 0.18s; outline: none;
+    }
+    .login-button:hover {
+        background-color: #005fa1; color: #fff !important; text-decoration: none;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="center-root">
+        <img src="{jkm_logo_url}" class="jkm-logo" alt="JKM Consult Logo"/>
+        <div class="app-title">TED Scraper</div>
+        <div class="welcome-text">
+            Welcome! Access project info securely.<br>
+            Login with Microsoft to continue.
+        </div>
+        <div class="login-card">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" class="microsoft-logo" alt="Microsoft Logo"/>
+            <h2 style="margin-bottom: 9px; font-size: 1.26em;">Sign in</h2>
+            <p style="font-size: 1em; color: #232b39; margin-bottom: 9px;">
+                to continue to <b>TED Scraper</b>
+            </p>
+            <a href="{auth_url}" class="login-button">
+                Sign in with Microsoft
+            </a>
+            <p style="margin-top: 32px; font-size: 0.98em; color: #888;">
+                Your credentials are always handled by Microsoft.<br>
+                We never see or store your password.
+            </p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def auth_flow():
+    params = st.query_params
+    if "code" in params:
+        st.write("params[code]:", params["code"])
+        st.write("REDIRECT_URI:", REDIRECT_URI)
+        st.write("CLIENT_ID:", CLIENT_ID)
+        st.write("TENANT_ID:", TENANT_ID)
+        st.write("SCOPE:", SCOPE)
+        raw = params["code"][0]
+        code = raw.split("&")[0]
+        token_data = fetch_token(code)
+        st.write("Token response:", token_data)
+        if "access_token" in token_data:
+            st.session_state["user_token"] = token_data["access_token"]
+            st.query_params.clear()
+            st.experimental_rerun()
+        elif "error" in token_data:
+            st.error(f"MSAL error: {token_data.get('error')}")
+            st.error(f"Description: {token_data.get('error_description')}")
+            st.stop()
+        else:
+            st.error("Microsoft login failed. Please try again.")
+            st.stop()
+    if st.session_state.get("user_token"):
+        return True
+    else:
+        login_button()
+        st.stop()
+    return True
 
 # ------------------- BUSINESS LOGIC -------------------
 def fetch_all_notices_to_json():
@@ -221,6 +335,9 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
 # ------------------- MAIN STREAMLIT APP -------------------
 def main():
     st.set_page_config(page_title="TED Scraper", layout="centered")
+    auth_flow()  # Show login card if not logged in, otherwise continue on the same page
+
+    # --- After login: show main Excel scraping workflow HERE (same page) ---
     st.header("TED EU Notice Scraper")
     st.write("Download TED procurement notices.")
     if st.button("Run TED Scraper"):
@@ -263,3 +380,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
