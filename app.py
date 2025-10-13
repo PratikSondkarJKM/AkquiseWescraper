@@ -13,6 +13,12 @@ def login_screen():
     st.subheader("Please log in.")
     st.button("Log in with Microsoft", on_click=st.login)
 
+if not st.user.is_logged_in:
+    login_screen()
+else:
+    st.header(f"Welcome, {st.user.name}!")
+    st.button("Log out", on_click=st.logout)
+
 # --- Robust TED XML parsing and scraper ---
 def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_path):
     API = "https://api.ted.europa.eu/v3/notices/search"
@@ -373,3 +379,4 @@ else:
             finally:
                 temp_excel.close()
                 os.remove(temp_excel.name)
+
