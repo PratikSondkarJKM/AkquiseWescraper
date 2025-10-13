@@ -311,7 +311,7 @@ def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
 
 st.set_page_config(page_title="TED Scraper", layout="centered")
 st.markdown("# 📄 TED EU Notice Scraper")
-st.markdown("Download TED procurement notices to Excel (data is exported as a table for Power Automate).")
+st.markdown("Download TED procurement")
 with st.expander("ℹ️ How this works / Instructions", expanded=False):
     st.write("""
     1. Enter your filters (CPV, date range, country, filename).
@@ -352,3 +352,4 @@ if run:
         finally:
             temp_excel.close()
             os.remove(temp_excel.name)
+
