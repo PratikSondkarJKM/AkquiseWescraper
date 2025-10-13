@@ -337,6 +337,10 @@ st.set_page_config(page_title="TED Scraper with Microsoft Login", layout="center
 query_params = st.query_params  # This is a dictionary of query parameters
 code = query_params.get("code", [None])[0]
 error = query_params.get("error", [None])[0]
+st.write("Query params:", query_params)
+st.write("Code:", code)
+st.write("Error:", error)
+
 
 
 if error:
@@ -400,6 +404,7 @@ if "token" in st.session_state:
             finally:
                 temp_excel.close()
                 os.remove(temp_excel.name)
+
 
 
 
