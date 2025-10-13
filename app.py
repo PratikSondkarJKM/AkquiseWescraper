@@ -334,9 +334,8 @@ def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
 # --- Main Streamlit UI app ---
 st.set_page_config(page_title="TED Scraper with Microsoft Login", layout="centered")
 
-query_params = st.query_params.get("code", [None])[0]
-code = query_params.get("code", [None])[0]
-error = query_params.get("error", [None])[0]
+code = st.query_params.get("code", [None])[0]
+error = st.query_params.get("error", [None])[0]
 
 if error:
     st.error(f"Authentication failed: {error}")
@@ -399,6 +398,7 @@ if "token" in st.session_state:
             finally:
                 temp_excel.close()
                 os.remove(temp_excel.name)
+
 
 
 
