@@ -111,26 +111,23 @@ def login_button():
 def auth_flow():
     params = st.query_params
     if "code" in params:
-        st.write("params[code]:", params["code"])
-        st.write("REDIRECT_URI:", REDIRECT_URI)
-        st.write("CLIENT_ID:", CLIENT_ID)
-        st.write("TENANT_ID:", TENANT_ID)
-        st.write("SCOPE:", SCOPE)
-        raw = params["code"][0]
-        code = raw.split("&")[0]
-        token_data = fetch_token(code)
-        st.write("Token response:", token_data)
-        if "access_token" in token_data:
-            st.session_state["user_token"] = token_data["access_token"]
+        # Only perform token exchange if not already done in session
+        if not st.session_state.get("user_token"):
+            code = params["code"][0].split("&")[0]  # Extract code cleanly
+            token_data = fetch_token(code)
+            st.write("Token response:", token_data)  # For debugging
+            if "access_token" in token_data:
+                st.session_state["user_token"] = token_data["access_token"]
+                st.query_params.clear()  # Prevent retry/exchange
+                st.experimental_rerun()  # Refresh to clear code from URL
+            else:
+                st.error(f"MSAL error: {token_data.get('error')}")
+                st.error(f"Description: {token_data.get('error_description')}")
+                st.stop()  # Do NOT retry with same code
+        else:
+            # Already authenticated, clear code from URL to prevent repeated use
             st.query_params.clear()
             st.experimental_rerun()
-        elif "error" in token_data:
-            st.error(f"MSAL error: {token_data.get('error')}")
-            st.error(f"Description: {token_data.get('error_description')}")
-            st.stop()
-        else:
-            st.error("Microsoft login failed. Please try again.")
-            st.stop()
     if st.session_state.get("user_token"):
         return True
     else:
@@ -381,6 +378,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
