@@ -1,25 +1,72 @@
 import streamlit as st
-import os, json, re, requests, time, tempfile
+from authlib.integrations.requests_client import OAuth2Session
+import urllib.parse
 from datetime import datetime, timedelta, date
+import requests, json, tempfile, time, re
 from lxml import etree
 from io import BytesIO
 import openpyxl
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import get_column_letter
 
-# --- Microsoft login screen ---
-def login_screen():
-    st.header("This app is private.")
-    st.subheader("Please log in.")
-    st.button("Log in with Microsoft", on_click=st.login)
+# Load OAuth2 secrets from Streamlit secrets
+client_id = st.secrets["app_credentials"]["client_id"]
+client_secret = st.secrets["app_credentials"]["client_secret"]
+redirect_uri = st.secrets["app_credentials"]["redirect_uri"]
+authority = st.secrets["app_credentials"]["authority"]
 
-if not st.user.is_logged_in:
-    login_screen()
-else:
-    st.header(f"Welcome, {st.user.name}!")
-    st.button("Log out", on_click=st.logout)
+authorize_url = f"{authority}/oauth2/v2.0/authorize"
+token_url = f"{authority}/oauth2/v2.0/token"
 
-# --- Robust TED XML parsing and scraper ---
+def login_button():
+    params = {
+        "client_id": client_id,
+        "response_type": "code",
+        "redirect_uri": redirect_uri,
+        "response_mode": "query",
+        "scope": "openid profile email",
+        "state": "random_state_string"
+    }
+    url = authorize_url + "?" + urllib.parse.urlencode(params)
+    st.markdown(f'<a href="{url}"><button>Log in with Microsoft</button></a>', unsafe_allow_html=True)
+
+def _first_text(nodes):
+    for n in nodes or []:
+        t = (n.text or "").strip()
+        if t:
+            return t
+    return ""
+
+def _norm_date(d: str) -> str:
+    if not d: return ""
+    d = d.rstrip("Zz")
+    return d.split("T")[0].split("+")[0]
+
+def _clean_title(raw: str) -> str:
+    if not raw: return ""
+    return re.sub(r"^\s*\d{4}[-_]\d{5,}[\s_\-–:]+", "", raw.strip())
+
+def _parse_iso_date(d: str):
+    try:
+        return datetime.strptime(d, "%Y-%m-%d")
+    except Exception:
+        return None
+
+def _duration_to_days(val: str, unit: str | None):
+    if not val: return None
+    try:
+        num = float(str(val).strip().replace(",", "."))
+    except Exception:
+        return None
+    u = (unit or "").upper()
+    if u in ("DAY","D","DAYS"):
+        return int(round(num))
+    if u in ("MON","M","MONTH","MONTHS"):
+        return int(round(num * 30))
+    if u in ("ANN","Y","YEAR","YEARS"):
+        return int(round(num * 365))
+    return None
+
 def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_path):
     API = "https://api.ted.europa.eu/v3/notices/search"
     PAYLOAD_BASE = {
@@ -106,45 +153,6 @@ def fetch_notice_xml(session: requests.Session, pubno: str, notice: dict) -> byt
         pass
     raise RuntimeError(f"No XML found for {pubno}")
 
-def _first_text(nodes):
-    for n in nodes or []:
-        t = (n.text or "").strip()
-        if t:
-            return t
-    return ""
-
-def _norm_date(d: str) -> str:
-    if not d:
-        return ""
-    d = d.rstrip("Zz")
-    return d.split("T")[0].split("+")[0]
-
-def _clean_title(raw: str) -> str:
-    if not raw: return ""
-    return re.sub(r"^\s*\d{4}[-_]\d{5,}[\s_\-–:]+", "", raw.strip())
-
-def _parse_iso_date(d: str):
-    try:
-        return datetime.strptime(d, "%Y-%m-%d")
-    except Exception:
-        return None
-
-def _duration_to_days(val: str, unit: str | None):
-    if not val:
-        return None
-    try:
-        num = float(str(val).strip().replace(",", "."))
-    except Exception:
-        return None
-    u = (unit or "").upper()
-    if u in ("DAY","D","DAYS"):
-        return int(round(num))
-    if u in ("MON","M","MONTH","MONTHS"):
-        return int(round(num * 30))
-    if u in ("ANN","Y","YEAR","YEARS"):
-        return int(round(num * 365))
-    return None
-
 def parse_xml_fields(xml_bytes: bytes) -> dict:
     parser = etree.XMLParser(recover=True, huge_tree=True)
     root = etree.parse(BytesIO(xml_bytes), parser)
@@ -155,7 +163,7 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
     ns.setdefault("efbc","http://data.europa.eu/p27/eforms-ubl-extension-basic-components/1")
     out = {}
 
-    # --- Robust lots extraction: any element with "Lot" in its local name ---
+    # Robust lot extraction across different structures
     lot_descriptions = []
     lot_nodes = root.xpath("//*[contains(local-name(), 'Lot')]")
     for lot_node in lot_nodes:
@@ -169,7 +177,6 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
             lot_descriptions.append(desc)
     out["Leistungen/Rollen"] = "; ".join(lot_descriptions)
 
-    # --- Fill out all other fields as before ---
     out["Beschaffer"] = _first_text(
         root.xpath(".//cac:ContractingParty//cac:PartyName/cbc:Name", namespaces=ns)
         or root.xpath(".//efac:Organizations//efac:Company/cac:PartyName/cbc:Name", namespaces=ns)
@@ -324,59 +331,70 @@ def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
     wb.save(output_excel)
     os.remove(temp_json)
 
-# --- Streamlit UI setup ---
+# --- Main Streamlit UI app ---
 st.set_page_config(page_title="TED Scraper with Microsoft Login", layout="centered")
 
-if not st.user.is_logged_in:
-    login_screen()
-else:
-    st.header(f"Welcome, {st.user.name}!")
-    st.button("Log out", on_click=st.logout)
+code = st.experimental_get_query_params().get("code", [None])[0]
+error = st.experimental_get_query_params().get("error", [None])[0]
 
-    st.markdown("# 📄 TED EU Notice Scraper")
-    st.markdown("Download TED procurement notices to Excel (data is exported as a table for Power Automate).")
-    with st.expander("ℹ️ How this works / Instructions", expanded=False):
-        st.write("""
-        1. Enter your filters (CPV, date range, country, filename).
-        2. Click **Run Scraper**. The script downloads notices and attachments, saves an Excel file.
-        3. Use the download button to save the Excel file wherever you want!
-        4. The exported file now contains an Excel table named 'TEDData', ready for Power Automate!
-        """)
+if error:
+    st.error(f"Authentication failed: {error}")
+
+if "token" not in st.session_state:
+    if code is None:
+        st.write("Please log in with Microsoft to use this app.")
+        login_button()
+    else:
+        # Exchange code for token
+        client = OAuth2Session(client_id, client_secret, redirect_uri=redirect_uri, scope="openid profile email")
+        try:
+            token = client.fetch_token(
+                token_url,
+                grant_type="authorization_code",
+                code=code,
+                client_id=client_id,
+                client_secret=client_secret,
+                redirect_uri=redirect_uri,
+            )
+            st.session_state.token = token
+            st.experimental_rerun()
+        except Exception as e:
+            st.error(f"Error fetching token: {e}")
+
+if "token" in st.session_state:
+    st.success("You are logged in!")
+    if st.button("Log out"):
+        st.session_state.pop("token")
+        st.experimental_rerun()
 
     c1, c2 = st.columns(2)
     with c1:
-        cpv_codes = st.text_input("🔎 CPV Codes (space separated)", "71541000 71500000 71240000 79421000 71000000 71248000 71312000 71700000 71300000 71520000 71250000 90712000 71313000")
+        cpv_codes = st.text_input("🔎 CPV Codes (space separated)", "71541000 71500000 71240000")
     with c2:
         buyer_country = st.text_input("🌍 Buyer Country (ISO Alpha-3)", "DEU")
 
-    today = date.today()
     date_col1, date_col2 = st.columns(2)
     with date_col1:
-        start_date_obj = st.date_input("📆 Start Publication Date", value=date(today.year, today.month, today.day))
+        start_date_obj = st.date_input("📆 Start Publication Date", value=date.today())
     with date_col2:
-        end_date_obj = st.date_input("📆 End Publication Date", value=date(today.year, today.month, today.day))
+        end_date_obj = st.date_input("📆 End Publication Date", value=date.today())
+
     date_start = start_date_obj.strftime("%Y%m%d")
-    date_end   = end_date_obj.strftime("%Y%m%d")
+    date_end = end_date_obj.strftime("%Y%m%d")
 
     output_excel = st.text_input("💾 Output Excel filename", f"ted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
 
     run = st.button("▶️ Run Scraper")
     if run:
-        st.info("Scraping... Please wait (can take a few minutes).")
+        st.info("Scraping... This may take a minute.")
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_excel:
             try:
                 main_scraper(cpv_codes, date_start, date_end, buyer_country, temp_excel.name)
                 st.success("Done! Download your Excel file below.")
                 with open(temp_excel.name, "rb") as f:
-                    st.download_button(
-                        label="⬇️ Download Excel",
-                        data=f.read(),
-                        file_name=output_excel,
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                    st.download_button("⬇️ Download Excel", f.read(), file_name=output_excel, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             except Exception as e:
                 st.error(f"Error: {e}")
             finally:
                 temp_excel.close()
                 os.remove(temp_excel.name)
-
