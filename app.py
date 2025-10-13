@@ -1,86 +1,139 @@
 import streamlit as st
-from authlib.integrations.requests_client import OAuth2Session
-import urllib.parse
-from datetime import datetime, timedelta, date
-import requests, json, tempfile, time, re
+import os, json, re, requests, time
+from datetime import datetime, timedelta
 from lxml import etree
 from io import BytesIO
 import openpyxl
-from openpyxl.worksheet.table import Table, TableStyleInfo
-from openpyxl.utils import get_column_letter
+from msal import ConfidentialClientApplication
 
-# Load OAuth2 secrets from Streamlit secrets
-client_id = st.secrets["app_credentials"]["client_id"]
-client_secret = st.secrets["app_credentials"]["client_secret"]
-redirect_uri = st.secrets["app_credentials"]["redirect_uri"]
-authority = st.secrets["app_credentials"]["authority"]
+# ------------------- CONFIGURATION -------------------
+CLIENT_ID = st.secrets["CLIENT_ID"]
+CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
+TENANT_ID = st.secrets["TENANT_ID"]
+AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
+SCOPE = ["https://graph.microsoft.com/.default"]
+REDIRECT_URI = st.secrets["REDIRECT_URI"]
 
-authorize_url = f"https://login.microsoftonline.com/a5b8c4c2-1d90-4ac0-990f-ed4a22dbb7b5/oauth2/v2.0/authorize"
+BASE_PATH = "./data"
+os.makedirs(BASE_PATH, exist_ok=True)
+JSON_FILE = os.path.join(BASE_PATH, "ted_results.json")
+EXCEL_OUT = os.path.join(BASE_PATH, f"ted_from_xml_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+API = "https://api.ted.europa.eu/v3/notices/search"
+PAYLOAD_BASE = {
+    "query": "(publication-date >=20250815<=20250831) AND (buyer-country IN (DEU)) "
+             "AND (classification-cpv IN (71541000 79421000)) "
+             "AND (notice-type IN (pin-cfc-standard pin-cfc-social qu-sy cn-standard cn-social subco cn-desg))",
+    "fields": ["publication-number","links"],
+    "scope": "ACTIVE",
+    "checkQuerySyntax": False,
+    "paginationMode": "PAGE_NUMBER",
+    "page": 1,
+    "limit": 100
+}
 
-token_url = f"https://login.microsoftonline.com/a5b8c4c2-1d90-4ac0-990f-ed4a22dbb7b5/oauth2/v2.0/token"
+# ------------------- AUTHENTICATION -------------------
+def build_msal_app():
+    return ConfidentialClientApplication(
+        client_id=CLIENT_ID,
+        authority=AUTHORITY,
+        client_credential=CLIENT_SECRET
+    )
+
+def fetch_token(auth_code):
+    msal_app = build_msal_app()
+    return msal_app.acquire_token_by_authorization_code(auth_code, scopes=SCOPE, redirect_uri=REDIRECT_URI)
 
 def login_button():
-    params = {
-        "client_id": client_id,
-        "response_type": "code",
-        "redirect_uri": redirect_uri,
-        "response_mode": "query",
-        "scope": "openid profile email",
-        "state": "random_state_string"
+    jkm_logo_url = "https://www.xing.com/imagecache/public/scaled_original_image/eyJ1dWlkIjoiMGE2MTk2MTYtODI4Zi00MWZlLWEzN2ItMjczZGM2ODc5MGJmIiwiYXBwX2NvbnRleHQiOiJlbnRpdHktcGFnZXMiLCJtYXhfd2lkdGgiOjMyMCwibWF4X2hlaWdodCI6MzIwfQ?signature=a21e5c1393125a94fc9765898c25d73a064665dc3aacf872667c902d7ed9c3f9"
+    msal_app = build_msal_app()
+    auth_url = msal_app.get_authorization_request_url(SCOPE, redirect_uri=REDIRECT_URI)
+    st.markdown("""
+    <style>
+    .block-container { padding: 0 !important; max-width: 100vw !important; }
+    .center-root {
+        min-height: 100vh; width: 100vw;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        background: linear-gradient(120deg, #eaf6fb 0%, #f3e9f5 100%);
     }
-    url = authorize_url + "?" + urllib.parse.urlencode(params)
-    st.markdown(f'<a href="{url}"><button>Log in with Microsoft</button></a>', unsafe_allow_html=True)
-
-def _first_text(nodes):
-    for n in nodes or []:
-        t = (n.text or "").strip()
-        if t:
-            return t
-    return ""
-
-def _norm_date(d: str) -> str:
-    if not d: return ""
-    d = d.rstrip("Zz")
-    return d.split("T")[0].split("+")[0]
-
-def _clean_title(raw: str) -> str:
-    if not raw: return ""
-    return re.sub(r"^\s*\d{4}[-_]\d{5,}[\s_\-–:]+", "", raw.strip())
-
-def _parse_iso_date(d: str):
-    try:
-        return datetime.strptime(d, "%Y-%m-%d")
-    except Exception:
-        return None
-
-def _duration_to_days(val: str, unit: str | None):
-    if not val: return None
-    try:
-        num = float(str(val).strip().replace(",", "."))
-    except Exception:
-        return None
-    u = (unit or "").upper()
-    if u in ("DAY","D","DAYS"):
-        return int(round(num))
-    if u in ("MON","M","MONTH","MONTHS"):
-        return int(round(num * 30))
-    if u in ("ANN","Y","YEAR","YEARS"):
-        return int(round(num * 365))
-    return None
-
-def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_path):
-    API = "https://api.ted.europa.eu/v3/notices/search"
-    PAYLOAD_BASE = {
-        "query": f"(publication-date >={date_start}<={date_end}) AND (buyer-country IN ({buyer_country})) "
-                 f"AND (classification-cpv IN ({cpv_codes})) "
-                 "AND (notice-type IN (pin-cfc-standard pin-cfc-social qu-sy cn-standard cn-social subco cn-desg))",
-        "fields": ["publication-number","links"],
-        "scope": "ACTIVE",
-        "checkQuerySyntax": False,
-        "paginationMode": "PAGE_NUMBER",
-        "page": 1,
-        "limit": 100
+    .jkm-logo {
+        height: 72px; margin-bottom: 14px; border-radius: 14px; box-shadow: 0 2px 14px rgba(70,80,120,0.08);
+        background: #fff; display: block;
     }
+    .app-title {
+        font-family: 'Segoe UI', Arial,sans-serif;
+        font-size: 2.3em; text-align: center; font-weight: 800; color: #283044; margin-bottom: 10px; margin-top: 4px;
+    }
+    .welcome-text {
+        font-size: 1.07em; color: #505A69; margin-bottom: 22px; margin-top: 0; text-align: center;
+    }
+    .login-card {
+        width: 375px; padding: 38px 34px 31px 34px; background: #fff; border-radius: 18px;
+        box-shadow: 0 8px 32px rgba(50,72,140,.13); text-align: center; margin-top: 6px;
+    }
+    .microsoft-logo {
+        height: 44px; margin-bottom: 16px; display:block; margin-left:auto; margin-right:auto;
+    }
+    .login-button {
+        display: block; width: 100%; padding: 17px 0 14px 0; margin: 28px 0 18px 0; font-size: 17px;
+        background-color: #0078d7; color: #fff !important; border: none; border-radius: 7px;
+        cursor: pointer; text-decoration: none; font-weight: 600; transition: background 0.18s; outline: none;
+    }
+    .login-button:hover {
+        background-color: #005fa1; color: #fff !important; text-decoration: none;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="center-root">
+        <img src="{jkm_logo_url}" class="jkm-logo" alt="JKM Consult Logo"/>
+        <div class="app-title">TED Scraper</div>
+        <div class="welcome-text">
+            Welcome! Access project info securely.<br>
+            Login with Microsoft to continue.
+        </div>
+        <div class="login-card">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" class="microsoft-logo" alt="Microsoft Logo"/>
+            <h2 style="margin-bottom: 9px; font-size: 1.26em;">Sign in</h2>
+            <p style="font-size: 1em; color: #232b39; margin-bottom: 9px;">
+                to continue to <b>TED Scraper</b>
+            </p>
+            <a href="{auth_url}" class="login-button">
+                Sign in with Microsoft
+            </a>
+            <p style="margin-top: 32px; font-size: 0.98em; color: #888;">
+                Your credentials are always handled by Microsoft.<br>
+                We never see or store your password.
+            </p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def auth_flow():
+    params = st.query_params
+    if "code" in params:
+        st.write("params[code]:", params["code"])
+        st.write("REDIRECT_URI:", REDIRECT_URI)
+        st.write("CLIENT_ID:", CLIENT_ID)
+        st.write("TENANT_ID:", TENANT_ID)
+        st.write("SCOPE:", SCOPE)
+        code = params["code"][0]
+        token_data = fetch_token(code)
+        st.write("Token response:", token_data)
+        token_data = fetch_token(params["code"][0])
+        if "access_token" in token_data:
+            st.session_state["user_token"] = token_data["access_token"]
+            st.query_params.clear()
+            st.experimental_rerun()
+        else:
+            st.error("Microsoft login failed. Please try again.")
+            st.stop()
+    if not st.session_state.get("user_token"):
+        login_button()
+        st.stop()
+    return True
+
+# ------------------- BUSINESS LOGIC -------------------
+def fetch_all_notices_to_json():
     s = requests.Session()
     s.headers.update({"Accept":"application/json"})
     all_notices = []
@@ -98,8 +151,8 @@ def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, js
         if not notices or (total and page * PAYLOAD_BASE["limit"] >= total):
             break
         page += 1
-        time.sleep(0.25)
-    with open(json_path, "w", encoding="utf-8") as f:
+        time.sleep(0.15)
+    with open(JSON_FILE, "w", encoding="utf-8") as f:
         json.dump({"notices": all_notices}, f, ensure_ascii=False, indent=2)
 
 def _get_links_block(notice: dict) -> dict:
@@ -115,18 +168,18 @@ def _extract_xml_urls_from_notice(notice: dict) -> list:
     xml_block = block.get("xml")
     urls = []
     if isinstance(xml_block, dict):
-        for k, v in xml_block.items():
-            if isinstance(k, str) and k.lower() == "mul" and v:
+        for k,v in xml_block.items():
+            if isinstance(k,str) and k.lower()=="mul" and v:
                 urls.append(v)
-        for k, v in xml_block.items():
-            if isinstance(k, str) and k.lower() != "mul" and v:
+        for k,v in xml_block.items():
+            if isinstance(k,str) and k.lower()!="mul" and v:
                 urls.append(v)
     elif isinstance(xml_block, str) and xml_block:
         urls.append(xml_block)
     return urls
 
 def fetch_notice_xml(session: requests.Session, pubno: str, notice: dict) -> bytes:
-    xml_headers = {"Accept": "application/xml", "User-Agent": "Mozilla/5.0"}
+    xml_headers = {"Accept":"application/xml","User-Agent":"Mozilla/5.0"}
     for url in _extract_xml_urls_from_notice(notice):
         try:
             r = session.get(url, headers=xml_headers, timeout=60)
@@ -154,6 +207,45 @@ def fetch_notice_xml(session: requests.Session, pubno: str, notice: dict) -> byt
         pass
     raise RuntimeError(f"No XML found for {pubno}")
 
+def _first_text(nodes):
+    for n in nodes or []:
+        t = (n.text or "").strip()
+        if t:
+            return t
+    return ""
+
+def _norm_date(d: str) -> str:
+    if not d:
+        return ""
+    d = d.rstrip("Zz")
+    return d.split("T")[0].split("+")[0]
+
+def _clean_title(raw: str) -> str:
+    if not raw: return ""
+    return re.sub(r"^\s*\d{4}[-_]\d{5,}[\s_\-–:]+", "", raw.strip())
+
+def _parse_iso_date(d: str):
+    try:
+        return datetime.strptime(d, "%Y-%m-%d")
+    except Exception:
+        return None
+
+def _duration_to_days(val: str, unit: str) -> int or None:
+    if not val:
+        return None
+    try:
+        num = float(str(val).strip().replace(",", "."))
+    except Exception:
+        return None
+    u = (unit or "").upper()
+    if u in ("DAY","D","DAYS"):
+        return int(round(num))
+    if u in ("MON","M","MONTH","MONTHS"):
+        return int(round(num * 30))
+    if u in ("ANN","Y","YEAR","YEARS"):
+        return int(round(num * 365))
+    return None
+
 def parse_xml_fields(xml_bytes: bytes) -> dict:
     parser = etree.XMLParser(recover=True, huge_tree=True)
     root = etree.parse(BytesIO(xml_bytes), parser)
@@ -163,21 +255,6 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
     ns.setdefault("efac","http://data.europa.eu/p27/eforms-ubl-extension-aggregate-components/1")
     ns.setdefault("efbc","http://data.europa.eu/p27/eforms-ubl-extension-basic-components/1")
     out = {}
-
-    # Robust lot extraction across different structures
-    lot_descriptions = []
-    lot_nodes = root.xpath("//*[contains(local-name(), 'Lot')]")
-    for lot_node in lot_nodes:
-        name = _first_text(lot_node.xpath("./cbc:Name", namespaces=ns))
-        desc = _first_text(lot_node.xpath("./cbc:Description", namespaces=ns))
-        if name and desc:
-            lot_descriptions.append(f"{name} – {desc}")
-        elif name:
-            lot_descriptions.append(name)
-        elif desc:
-            lot_descriptions.append(desc)
-    out["Leistungen/Rollen"] = "; ".join(lot_descriptions)
-
     out["Beschaffer"] = _first_text(
         root.xpath(".//cac:ContractingParty//cac:PartyName/cbc:Name", namespaces=ns)
         or root.xpath(".//efac:Organizations//efac:Company/cac:PartyName/cbc:Name", namespaces=ns)
@@ -247,171 +324,57 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
                 if currency:
                     value_text += f" {currency}"
                 break
-    out["Projektvolumen"] = value_text or ""
-
-    tender_deadline_date = _norm_date(
-        _first_text(root.xpath(".//cac:TenderSubmissionDeadlinePeriod/cbc:EndDate", namespaces=ns))
-    )
-    if not tender_deadline_date:
-        tender_deadline_date = _norm_date(
-            _first_text(root.xpath(".//cac:TenderingTerms/cbc:SubmissionDeadlineDate", namespaces=ns))
-        )
-    if not tender_deadline_date:
-        tender_deadline_date = _norm_date(
-            _first_text(root.xpath(".//cac:InterestExpressionReceptionPeriod/cbc:EndDate", namespaces=ns))
-        )
-    if not tender_deadline_date:
-        tender_deadline_date = _norm_date(
-            _first_text(root.xpath(".//efac:InterestExpressionReceptionPeriod/cbc:EndDate", namespaces=ns))
-        )
-    participation_deadline_date = _norm_date(
-        _first_text(root.xpath(".//cac:ParticipationRequestReceptionPeriod/cbc:EndDate", namespaces=ns))
-    )
-    if not participation_deadline_date:
-        participation_deadline_date = _norm_date(
-            _first_text(root.xpath(".//efac:ParticipationRequestReceptionPeriod/cbc:EndDate", namespaces=ns))
-        )
-    out["Frist Abgabedatum"] = tender_deadline_date or participation_deadline_date
-    pub_date = _first_text(root.xpath(".//efbc:PublicationDate", namespaces=ns))
-    if not pub_date:
-        pub_date = _first_text(root.xpath(".//cbc:PublicationDate", namespaces=ns))
-    out["Veröffentlichung Datum"] = _norm_date(pub_date)
-    cpv_codes_set = set()
-    main_cpv_nodes = root.xpath(".//cac:MainCommodityClassification/cbc:ItemClassificationCode", namespaces=ns)
-    for node in main_cpv_nodes:
-        if node.text:
-            cpv_codes_set.add(node.text.strip())
-    add_cpv_nodes = root.xpath(".//cac:AdditionalCommodityClassification/cbc:ItemClassificationCode", namespaces=ns)
-    for node in add_cpv_nodes:
-        if node.text:
-            cpv_codes_set.add(node.text.strip())
-    out["CPV Codes"] = ", ".join(sorted(cpv_codes_set))
+    out["Projektvolumen / Geschätzter Wert"] = value_text or ""
     return out
 
-def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
-    temp_json = tempfile.mktemp(suffix=".json")
-    fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, temp_json)
-    with open(temp_json, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    notices = data.get("results") or data.get("items") or data.get("notices") or []
-    s = requests.Session()
-    rows = []
-    for n in notices:
-        pubno = n.get("publication-number")
-        if not pubno:
-            continue
-        try:
-            xml_bytes = fetch_notice_xml(s, pubno, n)
-            fields = parse_xml_fields(xml_bytes)
-            fields["publication-number"] = pubno
-            fields.setdefault("Ted-Link", f"https://ted.europa.eu/en/notice/-/detail/{pubno}")
-            rows.append(fields)
-        except Exception as e:
-            print(f"ERR {pubno}: {e}")
-        time.sleep(0.25)
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    headers = [
-        "publication-number","Beschaffer","Projektbezeichnung","Ort/Region",
-        "Vergabeplattform","Ted-Link","Projektstart","Projektende",
-        "Geforderte Unternehmensreferenzen","Geforderte Kriterien CVs",
-        "Projektvolumen", "Frist Abgabedatum", "Veröffentlichung Datum", "CPV Codes",
-        "Leistungen/Rollen"
-    ]
-    ws.append(headers)
-    for r in rows:
-        ws.append([r.get(h,"") for h in headers])
-    last_row = len(rows) + 1
-    last_col = len(headers)
-    table_range = f"A1:{get_column_letter(last_col)}{last_row}"
-    table = Table(displayName="Teddata", ref=table_range)
-    style = TableStyleInfo(name="TableStyleMedium9", showFirstColumn=False,
-                           showLastColumn=False, showRowStripes=True, showColumnStripes=False)
-    table.tableStyleInfo = style
-    ws.add_table(table)
-    wb.save(output_excel)
-    os.remove(temp_json)
+# ------------------- MAIN STREAMLIT APP -------------------
+def main():
+    st.set_page_config(page_title="TED Scraper (Secure)", layout="centered")
+    auth_flow()  # Show login card if not logged in, otherwise continue on the same page
 
-# --- Main Streamlit UI app ---
-st.set_page_config(page_title="TED Scraper with Microsoft Login", layout="centered")
+    # --- After login: show main Excel scraping workflow HERE (same page) ---
+    st.header("TED EU Notice Scraper")
+    st.write("Download TED procurement notices to Excel (data is exported as a table for Power Automate).")
+    if st.button("Run TED Scraper"):
+        with st.spinner("Fetching notices, please wait..."):
+            fetch_all_notices_to_json()
+            with open(JSON_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            notices = data.get("results") or data.get("items") or data.get("notices") or []
+            s = requests.Session()
+            rows = []
+            for n in notices:
+                pubno = n.get("publication-number")
+                if not pubno:
+                    continue
+                try:
+                    xml_bytes = fetch_notice_xml(s, pubno, n)
+                    fields = parse_xml_fields(xml_bytes)
+                    fields["publication-number"] = pubno
+                    fields.setdefault("Ted-Link", f"https://ted.europa.eu/en/notice/-/detail/{pubno}")
+                    rows.append(fields)
+                except Exception as e:
+                    st.write(f"ERR {pubno}: {e}")
+                    continue
+                time.sleep(0.15)
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            headers = [
+                "publication-number","Beschaffer","Projektbezeichnung","Ort/Region",
+                "Vergabeplattform","Ted-Link","Projektstart","Projektende",
+                "Geforderte Unternehmensreferenzen","Geforderte Kriterien CVs",
+                "Projektvolumen / Geschätzter Wert"
+            ]
+            ws.append(headers)
+            for r in rows:
+                ws.append([r.get(h,"") for h in headers])
+            wb.save(EXCEL_OUT)
+        st.success("Done! Download your Excel file below.")
+        with open(EXCEL_OUT, "rb") as f:
+            st.download_button("Download Results Excel", data=f, file_name=os.path.basename(EXCEL_OUT))
 
-query_params = st.query_params  # This is a dictionary of query parameters
-code = query_params.get("code", [None])[0]
-error = query_params.get("error", [None])[0]
-st.write("Query params:", query_params)
-st.write("Code:", code)
-st.write("Error:", error)
-
-
-
-if error:
-    st.error(f"Authentication failed: {error}")
-
-if "token" not in st.session_state:
-    if code is None:
-        st.write("Please log in with Microsoft to use this app.")
-        login_button()
-    else:
-        # Exchange code for token
-        client = OAuth2Session(client_id, client_secret, redirect_uri=redirect_uri, scope="openid profile email")
-        try:
-            token = client.fetch_token(
-                token_url,
-                grant_type="client_credentials",
-                code=code,
-                client_id=client_id,
-                client_secret=client_secret,
-                redirect_uri=redirect_uri,
-            )
-            st.session_state.token = token
-            st.experimental_rerun()
-        except Exception as e:
-            st.error(f"Error fetching token: {e}")
-
-if "token" in st.session_state:
-    st.success("You are logged in!")
-    if st.button("Log out"):
-        st.session_state.pop("token")
-        st.experimental_rerun()
-
-    c1, c2 = st.columns(2)
-    with c1:
-        cpv_codes = st.text_input("🔎 CPV Codes (space separated)", "71541000 71500000 71240000")
-    with c2:
-        buyer_country = st.text_input("🌍 Buyer Country (ISO Alpha-3)", "DEU")
-
-    date_col1, date_col2 = st.columns(2)
-    with date_col1:
-        start_date_obj = st.date_input("📆 Start Publication Date", value=date.today())
-    with date_col2:
-        end_date_obj = st.date_input("📆 End Publication Date", value=date.today())
-
-    date_start = start_date_obj.strftime("%Y%m%d")
-    date_end = end_date_obj.strftime("%Y%m%d")
-
-    output_excel = st.text_input("💾 Output Excel filename", f"ted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
-
-    run = st.button("▶️ Run Scraper")
-    if run:
-        st.info("Scraping... This may take a minute.")
-        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_excel:
-            try:
-                main_scraper(cpv_codes, date_start, date_end, buyer_country, temp_excel.name)
-                st.success("Done! Download your Excel file below.")
-                with open(temp_excel.name, "rb") as f:
-                    st.download_button("⬇️ Download Excel", f.read(), file_name=output_excel, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            except Exception as e:
-                st.error(f"Error: {e}")
-            finally:
-                temp_excel.close()
-                os.remove(temp_excel.name)
-
-
-
-
-
-
-
+if __name__ == "__main__":
+    main()
 
 
 
