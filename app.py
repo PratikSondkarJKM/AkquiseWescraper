@@ -15,8 +15,9 @@ client_secret = st.secrets["app_credentials"]["client_secret"]
 redirect_uri = st.secrets["app_credentials"]["redirect_uri"]
 authority = st.secrets["app_credentials"]["authority"]
 
-authorize_url = f"{authority}/oauth2/v2.0/authorize"
-token_url = f"{authority}/oauth2/v2.0/token"
+authorize_url = f"https://login.microsoftonline.com/a5b8c4c2-1d90-4ac0-990f-ed4a22dbb7b5/oauth2/v2.0/authorize"
+
+token_url = f"https://login.microsoftonline.com/a5b8c4c2-1d90-4ac0-990f-ed4a22dbb7b5/oauth2/v2.0/token"
 
 def login_button():
     params = {
@@ -404,6 +405,7 @@ if "token" in st.session_state:
             finally:
                 temp_excel.close()
                 os.remove(temp_excel.name)
+
 
 
 
