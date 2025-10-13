@@ -7,7 +7,13 @@ import openpyxl
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import get_column_letter
 
+# --- Microsoft login screen ---
+def login_screen():
+    st.header("This app is private.")
+    st.subheader("Please log in.")
+    st.button("Log in with Microsoft", on_click=st.login)
 
+# --- Robust TED XML parsing and scraper ---
 def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_path):
     API = "https://api.ted.europa.eu/v3/notices/search"
     PAYLOAD_BASE = {
@@ -42,7 +48,6 @@ def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, js
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump({"notices": all_notices}, f, ensure_ascii=False, indent=2)
 
-
 def _get_links_block(notice: dict) -> dict:
     links = notice.get("links") or {}
     if isinstance(links, dict) and "links" in links and isinstance(links["links"], dict):
@@ -50,7 +55,6 @@ def _get_links_block(notice: dict) -> dict:
     if isinstance(links, dict):
         return { (k.lower() if isinstance(k,str) else k): v for k,v in links.items() }
     return {}
-
 
 def _extract_xml_urls_from_notice(notice: dict) -> list:
     block = _get_links_block(notice)
@@ -66,7 +70,6 @@ def _extract_xml_urls_from_notice(notice: dict) -> list:
     elif isinstance(xml_block, str) and xml_block:
         urls.append(xml_block)
     return urls
-
 
 def fetch_notice_xml(session: requests.Session, pubno: str, notice: dict) -> bytes:
     xml_headers = {"Accept": "application/xml", "User-Agent": "Mozilla/5.0"}
@@ -97,7 +100,6 @@ def fetch_notice_xml(session: requests.Session, pubno: str, notice: dict) -> byt
         pass
     raise RuntimeError(f"No XML found for {pubno}")
 
-
 def _first_text(nodes):
     for n in nodes or []:
         t = (n.text or "").strip()
@@ -105,25 +107,21 @@ def _first_text(nodes):
             return t
     return ""
 
-
 def _norm_date(d: str) -> str:
     if not d:
         return ""
     d = d.rstrip("Zz")
     return d.split("T")[0].split("+")[0]
 
-
 def _clean_title(raw: str) -> str:
     if not raw: return ""
     return re.sub(r"^\s*\d{4}[-_]\d{5,}[\s_\-–:]+", "", raw.strip())
-
 
 def _parse_iso_date(d: str):
     try:
         return datetime.strptime(d, "%Y-%m-%d")
     except Exception:
         return None
-
 
 def _duration_to_days(val: str, unit: str | None):
     if not val:
@@ -141,7 +139,6 @@ def _duration_to_days(val: str, unit: str | None):
         return int(round(num * 365))
     return None
 
-
 def parse_xml_fields(xml_bytes: bytes) -> dict:
     parser = etree.XMLParser(recover=True, huge_tree=True)
     root = etree.parse(BytesIO(xml_bytes), parser)
@@ -152,12 +149,10 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
     ns.setdefault("efbc","http://data.europa.eu/p27/eforms-ubl-extension-basic-components/1")
     out = {}
 
-    # --- Extract lot descriptions from any element with local-name containing 'Lot' ---
+    # --- Robust lots extraction: any element with "Lot" in its local name ---
     lot_descriptions = []
-    # XPath to find any elements with 'Lot' in name, case sensitive; adjust if needed
     lot_nodes = root.xpath("//*[contains(local-name(), 'Lot')]")
     for lot_node in lot_nodes:
-        # Extract Name and Description if available
         name = _first_text(lot_node.xpath("./cbc:Name", namespaces=ns))
         desc = _first_text(lot_node.xpath("./cbc:Description", namespaces=ns))
         if name and desc:
@@ -168,7 +163,7 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
             lot_descriptions.append(desc)
     out["Leistungen/Rollen"] = "; ".join(lot_descriptions)
 
-    # --- rest of your existing fields ---
+    # --- Fill out all other fields as before ---
     out["Beschaffer"] = _first_text(
         root.xpath(".//cac:ContractingParty//cac:PartyName/cbc:Name", namespaces=ns)
         or root.xpath(".//efac:Organizations//efac:Company/cac:PartyName/cbc:Name", namespaces=ns)
@@ -240,7 +235,6 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
                 break
     out["Projektvolumen"] = value_text or ""
 
-
     tender_deadline_date = _norm_date(
         _first_text(root.xpath(".//cac:TenderSubmissionDeadlinePeriod/cbc:EndDate", namespaces=ns))
     )
@@ -279,7 +273,6 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
             cpv_codes_set.add(node.text.strip())
     out["CPV Codes"] = ", ".join(sorted(cpv_codes_set))
     return out
-
 
 def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
     temp_json = tempfile.mktemp(suffix=".json")
@@ -325,47 +318,58 @@ def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
     wb.save(output_excel)
     os.remove(temp_json)
 
+# --- Streamlit UI setup ---
+st.set_page_config(page_title="TED Scraper with Microsoft Login", layout="centered")
 
-st.set_page_config(page_title="TED Scraper", layout="centered")
-st.markdown("# 📄 TED EU Notice Scraper")
-st.markdown("Download TED procurement notices to Excel (data is exported as a table for Power Automate).")
-with st.expander("ℹ️ How this works / Instructions", expanded=False):
-    st.write("""
-    1. Enter your filters (CPV, date range, country, filename).
-    2. Click **Run Scraper**. The script downloads notices and attachments, saves an Excel file.
-    3. Use the download button to save the Excel file wherever you want!
-    4. The exported file now contains an Excel table named 'TEDData', ready for Power Automate!
-    """)
-c1, c2 = st.columns(2)
-with c1:
-    cpv_codes = st.text_input("🔎 CPV Codes (space separated)", "71541000 79421000 71000000 71248000 71312000 71700000 71300000 71520000 71250000 90712000 71313000")
-with c2:
-    buyer_country = st.text_input("🌍 Buyer Country (ISO Alpha-3)", "DEU")
-today = date.today()
-date_col1, date_col2 = st.columns(2)
-with date_col1:
-    start_date_obj = st.date_input("📆 Start Publication Date", value=date(today.year, today.month, today.day))
-with date_col2:
-    end_date_obj = st.date_input("📆 End Publication Date", value=date(today.year, today.month, today.day))
-date_start = start_date_obj.strftime("%Y%m%d")
-date_end   = end_date_obj.strftime("%Y%m%d")
-output_excel = st.text_input("💾 Output Excel filename", f"ted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
-run = st.button("▶️ Run Scraper")
-if run:
-    st.info("Scraping... Please wait (can take a few minutes).")
-    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_excel:
-        try:
-            main_scraper(cpv_codes, date_start, date_end, buyer_country, temp_excel.name)
-            st.success("Done! Download your Excel file below.")
-            with open(temp_excel.name, "rb") as f:
-                st.download_button(
-                    label="⬇️ Download Excel",
-                    data=f.read(),
-                    file_name=output_excel,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-        except Exception as e:
-            st.error(f"Error: {e}")
-        finally:
-            temp_excel.close()
-            os.remove(temp_excel.name)
+if not st.user.is_logged_in:
+    login_screen()
+else:
+    st.header(f"Welcome, {st.user.name}!")
+    st.button("Log out", on_click=st.logout)
+
+    st.markdown("# 📄 TED EU Notice Scraper")
+    st.markdown("Download TED procurement notices to Excel (data is exported as a table for Power Automate).")
+    with st.expander("ℹ️ How this works / Instructions", expanded=False):
+        st.write("""
+        1. Enter your filters (CPV, date range, country, filename).
+        2. Click **Run Scraper**. The script downloads notices and attachments, saves an Excel file.
+        3. Use the download button to save the Excel file wherever you want!
+        4. The exported file now contains an Excel table named 'TEDData', ready for Power Automate!
+        """)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        cpv_codes = st.text_input("🔎 CPV Codes (space separated)", "71541000 71500000 71240000 79421000 71000000 71248000 71312000 71700000 71300000 71520000 71250000 90712000 71313000")
+    with c2:
+        buyer_country = st.text_input("🌍 Buyer Country (ISO Alpha-3)", "DEU")
+
+    today = date.today()
+    date_col1, date_col2 = st.columns(2)
+    with date_col1:
+        start_date_obj = st.date_input("📆 Start Publication Date", value=date(today.year, today.month, today.day))
+    with date_col2:
+        end_date_obj = st.date_input("📆 End Publication Date", value=date(today.year, today.month, today.day))
+    date_start = start_date_obj.strftime("%Y%m%d")
+    date_end   = end_date_obj.strftime("%Y%m%d")
+
+    output_excel = st.text_input("💾 Output Excel filename", f"ted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+
+    run = st.button("▶️ Run Scraper")
+    if run:
+        st.info("Scraping... Please wait (can take a few minutes).")
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_excel:
+            try:
+                main_scraper(cpv_codes, date_start, date_end, buyer_country, temp_excel.name)
+                st.success("Done! Download your Excel file below.")
+                with open(temp_excel.name, "rb") as f:
+                    st.download_button(
+                        label="⬇️ Download Excel",
+                        data=f.read(),
+                        file_name=output_excel,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+            except Exception as e:
+                st.error(f"Error: {e}")
+            finally:
+                temp_excel.close()
+                os.remove(temp_excel.name)
