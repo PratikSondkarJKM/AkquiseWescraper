@@ -32,6 +32,7 @@ PAYLOAD_BASE = {
 }
 
 # ------------------- AUTHENTICATION -------------------
+
 def build_msal_app():
     return ConfidentialClientApplication(
         client_id=CLIENT_ID,
@@ -44,102 +45,47 @@ def fetch_token(auth_code):
     return msal_app.acquire_token_by_authorization_code(auth_code, scopes=SCOPE, redirect_uri=REDIRECT_URI)
 
 def login_button():
-    jkm_logo_url = "https://www.xing.com/imagecache/public/scaled_original_image/eyJ1dWlkIjoiMGE2MTk2MTYtODI4Zi00MWZlLWEzN2ItMjczZGM2ODc5MGJmIiwiYXBwX2NvbnRleHQiOiJlbnRpdHktcGFnZXMiLCJtYXhfd2lkdGgiOjMyMCwibWF4X2hlaWdodCI6MzIwfQ?signature=a21e5c1393125a94fc9765898c25d73a064665dc3aacf872667c902d7ed9c3f9"
     msal_app = build_msal_app()
     auth_url = msal_app.get_authorization_request_url(SCOPE, redirect_uri=REDIRECT_URI)
-    st.markdown("""
-    <style>
-    .block-container { padding: 0 !important; max-width: 100vw !important; }
-    .center-root {
-        min-height: 100vh; width: 100vw;
-        display: flex; flex-direction: column; align-items: center; justify-content: center;
-        background: linear-gradient(120deg, #eaf6fb 0%, #f3e9f5 100%);
-    }
-    .jkm-logo {
-        height: 72px; margin-bottom: 14px; border-radius: 14px; box-shadow: 0 2px 14px rgba(70,80,120,0.08);
-        background: #fff; display: block;
-    }
-    .app-title {
-        font-family: 'Segoe UI', Arial,sans-serif;
-        font-size: 2.3em; text-align: center; font-weight: 800; color: #283044; margin-bottom: 10px; margin-top: 4px;
-    }
-    .welcome-text {
-        font-size: 1.07em; color: #505A69; margin-bottom: 22px; margin-top: 0; text-align: center;
-    }
-    .login-card {
-        width: 375px; padding: 38px 34px 31px 34px; background: #fff; border-radius: 18px;
-        box-shadow: 0 8px 32px rgba(50,72,140,.13); text-align: center; margin-top: 6px;
-    }
-    .microsoft-logo {
-        height: 44px; margin-bottom: 16px; display:block; margin-left:auto; margin-right:auto;
-    }
-    .login-button {
-        display: block; width: 100%; padding: 17px 0 14px 0; margin: 28px 0 18px 0; font-size: 17px;
-        background-color: #0078d7; color: #fff !important; border: none; border-radius: 7px;
-        cursor: pointer; text-decoration: none; font-weight: 600; transition: background 0.18s; outline: none;
-    }
-    .login-button:hover {
-        background-color: #005fa1; color: #fff !important; text-decoration: none;
-    }
-    </style>
-    """, unsafe_allow_html=True)
     st.markdown(f"""
-    <div class="center-root">
-        <img src="{jkm_logo_url}" class="jkm-logo" alt="JKM Consult Logo"/>
-        <div class="app-title">TED Scraper</div>
-        <div class="welcome-text">
-            Welcome! Access project info securely.<br>
-            Login with Microsoft to continue.
-        </div>
-        <div class="login-card">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" class="microsoft-logo" alt="Microsoft Logo"/>
-            <h2 style="margin-bottom: 9px; font-size: 1.26em;">Sign in</h2>
-            <p style="font-size: 1em; color: #232b39; margin-bottom: 9px;">
-                to continue to <b>TED Scraper</b>
-            </p>
-            <a href="{auth_url}" class="login-button">
-                Sign in with Microsoft
-            </a>
-            <p style="margin-top: 32px; font-size: 0.98em; color: #888;">
-                Your credentials are always handled by Microsoft.<br>
-                We never see or store your password.
-            </p>
-        </div>
-    </div>
+        <a href="{auth_url}" style="
+            background-color:#0078d7; color:#fff; padding:15px 30px; border-radius:7px;
+            font-size:20px; font-weight:bold; text-decoration:none; display:inline-block;
+            text-align:center;">Sign in with Microsoft
+        </a>
     """, unsafe_allow_html=True)
 
 def auth_flow():
     params = st.query_params
+
+    if "user_token" in st.session_state:
+        return True  # Logged in
+
     if "code" in params:
-        st.write("params[code]:", params["code"])
-        st.write("REDIRECT_URI:", REDIRECT_URI)
-        st.write("CLIENT_ID:", CLIENT_ID)
-        st.write("TENANT_ID:", TENANT_ID)
-        st.write("SCOPE:", SCOPE)
         code = params["code"][0]
         token_data = fetch_token(code)
-        st.write("Token response:", token_data)
-        token_data = fetch_token(params["code"][0])
         if "access_token" in token_data:
             st.session_state["user_token"] = token_data["access_token"]
-            st.query_params.clear()
+            # Clear URL params after processing to prevent reuse
+            st.set_query_params()
             st.experimental_rerun()
         else:
             st.error("Microsoft login failed. Please try again.")
             st.stop()
-    if not st.session_state.get("user_token"):
+    else:
         login_button()
         st.stop()
-    return True
 
 # ------------------- BUSINESS LOGIC -------------------
+
 def fetch_all_notices_to_json():
     s = requests.Session()
-    s.headers.update({"Accept":"application/json"})
+    s.headers.update({"Accept": "application/json"})
     all_notices = []
     page = 1
     while True:
-        body = dict(PAYLOAD_BASE); body["page"] = page
+        body = dict(PAYLOAD_BASE)
+        body["page"] = page
         r = s.post(API, json=body, timeout=60)
         r.raise_for_status()
         data = r.json()
@@ -160,7 +106,7 @@ def _get_links_block(notice: dict) -> dict:
     if isinstance(links, dict) and "links" in links and isinstance(links["links"], dict):
         links = links["links"]
     if isinstance(links, dict):
-        return { (k.lower() if isinstance(k,str) else k): v for k,v in links.items() }
+        return {(k.lower() if isinstance(k, str) else k): v for k, v in links.items()}
     return {}
 
 def _extract_xml_urls_from_notice(notice: dict) -> list:
@@ -168,18 +114,18 @@ def _extract_xml_urls_from_notice(notice: dict) -> list:
     xml_block = block.get("xml")
     urls = []
     if isinstance(xml_block, dict):
-        for k,v in xml_block.items():
-            if isinstance(k,str) and k.lower()=="mul" and v:
+        for k, v in xml_block.items():
+            if isinstance(k, str) and k.lower() == "mul" and v:
                 urls.append(v)
-        for k,v in xml_block.items():
-            if isinstance(k,str) and k.lower()!="mul" and v:
+        for k, v in xml_block.items():
+            if isinstance(k, str) and k.lower() != "mul" and v:
                 urls.append(v)
     elif isinstance(xml_block, str) and xml_block:
         urls.append(xml_block)
     return urls
 
 def fetch_notice_xml(session: requests.Session, pubno: str, notice: dict) -> bytes:
-    xml_headers = {"Accept":"application/xml","User-Agent":"Mozilla/5.0"}
+    xml_headers = {"Accept": "application/xml", "User-Agent": "Mozilla/5.0"}
     for url in _extract_xml_urls_from_notice(notice):
         try:
             r = session.get(url, headers=xml_headers, timeout=60)
@@ -187,7 +133,7 @@ def fetch_notice_xml(session: requests.Session, pubno: str, notice: dict) -> byt
                 return r.content
         except requests.RequestException:
             pass
-    for lang in ("en","de","fr"):
+    for lang in ("en", "de", "fr"):
         url = f"https://ted.europa.eu/{lang}/notice/{pubno}/xml"
         try:
             r = session.get(url, headers=xml_headers, timeout=60)
@@ -197,7 +143,7 @@ def fetch_notice_xml(session: requests.Session, pubno: str, notice: dict) -> byt
             pass
     detail_url = f"https://ted.europa.eu/en/notice/-/detail/{pubno}"
     try:
-        html = session.get(detail_url, headers={"User-Agent":"Mozilla/5.0"}, timeout=60).text
+        html = session.get(detail_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=60).text
         m = re.search(r'https://ted\.europa\.eu/(?:en|de|fr)/notice/' + re.escape(pubno) + r'/xml', html)
         if m:
             r = session.get(m.group(0), headers=xml_headers, timeout=60)
@@ -221,7 +167,8 @@ def _norm_date(d: str) -> str:
     return d.split("T")[0].split("+")[0]
 
 def _clean_title(raw: str) -> str:
-    if not raw: return ""
+    if not raw:
+        return ""
     return re.sub(r"^\s*\d{4}[-_]\d{5,}[\s_\-–:]+", "", raw.strip())
 
 def _parse_iso_date(d: str):
@@ -238,11 +185,11 @@ def _duration_to_days(val: str, unit: str) -> int or None:
     except Exception:
         return None
     u = (unit or "").upper()
-    if u in ("DAY","D","DAYS"):
+    if u in ("DAY", "D", "DAYS"):
         return int(round(num))
-    if u in ("MON","M","MONTH","MONTHS"):
+    if u in ("MON", "M", "MONTH", "MONTHS"):
         return int(round(num * 30))
-    if u in ("ANN","Y","YEAR","YEARS"):
+    if u in ("ANN", "Y", "YEAR", "YEARS"):
         return int(round(num * 365))
     return None
 
@@ -250,10 +197,10 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
     parser = etree.XMLParser(recover=True, huge_tree=True)
     root = etree.parse(BytesIO(xml_bytes), parser)
     ns = {k: v for k, v in (root.getroot().nsmap or {}).items() if k}
-    ns.setdefault("cbc","urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2")
-    ns.setdefault("cac","urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2")
-    ns.setdefault("efac","http://data.europa.eu/p27/eforms-ubl-extension-aggregate-components/1")
-    ns.setdefault("efbc","http://data.europa.eu/p27/eforms-ubl-extension-basic-components/1")
+    ns.setdefault("cbc", "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2")
+    ns.setdefault("cac", "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2")
+    ns.setdefault("efac", "http://data.europa.eu/p27/eforms-ubl-extension-aggregate-components/1")
+    ns.setdefault("efbc", "http://data.europa.eu/p27/eforms-ubl-extension-basic-components/1")
     out = {}
     out["Beschaffer"] = _first_text(
         root.xpath(".//cac:ContractingParty//cac:PartyName/cbc:Name", namespaces=ns)
@@ -328,11 +275,11 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
     return out
 
 # ------------------- MAIN STREAMLIT APP -------------------
+
 def main():
     st.set_page_config(page_title="TED Scraper (Secure)", layout="centered")
-    auth_flow()  # Show login card if not logged in, otherwise continue on the same page
+    auth_flow()
 
-    # --- After login: show main Excel scraping workflow HERE (same page) ---
     st.header("TED EU Notice Scraper")
     st.write("Download TED procurement notices to Excel (data is exported as a table for Power Automate).")
     if st.button("Run TED Scraper"):
@@ -351,23 +298,40 @@ def main():
                     xml_bytes = fetch_notice_xml(s, pubno, n)
                     fields = parse_xml_fields(xml_bytes)
                     fields["publication-number"] = pubno
-                    fields.setdefault("Ted-Link", f"https://ted.europa.eu/en/notice/-/detail/{pubno}")
                     rows.append(fields)
                 except Exception as e:
                     st.write(f"ERR {pubno}: {e}")
                     continue
                 time.sleep(0.15)
-            wb = openpyxl.Workbook()
-            ws = wb.active
+            ws = openpyxl.Workbook().active
             headers = [
-                "publication-number","Beschaffer","Projektbezeichnung","Ort/Region",
-                "Vergabeplattform","Ted-Link","Projektstart","Projektende",
-                "Geforderte Unternehmensreferenzen","Geforderte Kriterien CVs",
+                "publication-number",
+                "Beschaffer",
+                "Projektbezeichnung",
+                "Ort/Region",
+                "Vergabeplattform",
+                "Ted-Link",
+                "Projektstart",
+                "Projektende",
+                "Geforderte Unternehmensreferenzen",
+                "Geforderte Kriterien CVs",
                 "Projektvolumen / Geschätzter Wert"
             ]
             ws.append(headers)
             for r in rows:
-                ws.append([r.get(h,"") for h in headers])
+                ws.append([r.get(h, "") for h in headers])
+            wb = ws.workbook
+            last_row = ws.max_row
+            last_col = ws.max_column
+            tab = openpyxl.worksheet.table.Table(displayName="TedData", ref=f"A1:{openpyxl.utils.get_column_letter(last_col)}{last_row}")
+            style = openpyxl.worksheet.table.TableStyleInfo(
+                name="TableStyleMedium9",
+                showFirstColumn=False,
+                showLastColumn=False,
+                showRowStripes=True,
+                showColumnStripes=False)
+            tab.tableStyleInfo = style
+            ws.add_table(tab)
             wb.save(EXCEL_OUT)
         st.success("Done! Download your Excel file below.")
         with open(EXCEL_OUT, "rb") as f:
@@ -375,7 +339,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
