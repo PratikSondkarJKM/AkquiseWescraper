@@ -110,26 +110,23 @@ def login_button():
 
 def auth_flow():
     params = st.query_params
-    if "code" in params:
-        st.write("params[code]:", params["code"])
-        st.write("REDIRECT_URI:", REDIRECT_URI)
-        st.write("CLIENT_ID:", CLIENT_ID)
-        st.write("TENANT_ID:", TENANT_ID)
-        st.write("SCOPE:", SCOPE)
+    if "code" in params and "user_token" not in st.session_state:
         code = params["code"][0]
         token_data = fetch_token(code)
         st.write("Token response:", token_data)
-        token_data = fetch_token(params["code"][0])
         if "access_token" in token_data:
             st.session_state["user_token"] = token_data["access_token"]
-            st.query_params.clear()
+            # Clear query params to prevent reusing code on reload
+            st.set_query_params()
             st.experimental_rerun()
         else:
             st.error("Microsoft login failed. Please try again.")
             st.stop()
-    if not st.session_state.get("user_token"):
+
+    if "user_token" not in st.session_state:
         login_button()
         st.stop()
+
     return True
 
 # ------------------- BUSINESS LOGIC -------------------
@@ -375,6 +372,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
