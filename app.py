@@ -336,6 +336,7 @@ st.set_page_config(page_title="TED Scraper with Microsoft Login", layout="center
 
 query_params = st.experimental_get_query_params()
 code = query_params.get("code", [None])[0]
+error = query_params.get("error", [None])[0]
 
 if error:
     st.error(f"Authentication failed: {error}")
@@ -398,6 +399,7 @@ if "token" in st.session_state:
             finally:
                 temp_excel.close()
                 os.remove(temp_excel.name)
+
 
 
 
