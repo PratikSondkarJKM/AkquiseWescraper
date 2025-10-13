@@ -1,4 +1,4 @@
-import streamlit as st
+ndimport streamlit as st
 import os, json, re, requests, time
 from datetime import datetime, timedelta
 from lxml import etree
@@ -11,7 +11,7 @@ CLIENT_ID = st.secrets["CLIENT_ID"]
 CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
 TENANT_ID = st.secrets["TENANT_ID"]
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
-SCOPE = ["User.Read"]
+SCOPE = ["api://ee0c4cdd-169e-4741-80fe-da7866c081e1/.default"]
 REDIRECT_URI = st.secrets["REDIRECT_URI"]
 
 BASE_PATH = "./data"
@@ -375,4 +375,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
