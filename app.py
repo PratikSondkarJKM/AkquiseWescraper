@@ -357,7 +357,7 @@ if "token" not in st.session_state:
         try:
             token = client.fetch_token(
                 token_url,
-                grant_type="authorization_code",
+                grant_type="client_credentials",
                 code=code,
                 client_id=client_id,
                 client_secret=client_secret,
@@ -405,6 +405,7 @@ if "token" in st.session_state:
             finally:
                 temp_excel.close()
                 os.remove(temp_excel.name)
+
 
 
 
