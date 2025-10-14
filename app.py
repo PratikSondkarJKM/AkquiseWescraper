@@ -11,7 +11,7 @@ CLIENT_ID = st.secrets["CLIENT_ID"]
 CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
 TENANT_ID = st.secrets["TENANT_ID"]
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
-SCOPE = ["openid profile email https://graph.microsoft.com/User.Read"]
+SCOPE = ["openid", "profile", "email", "https://graph.microsoft.com/User.Read"]
 REDIRECT_URI = st.secrets["REDIRECT_URI"]
 
 BASE_PATH = "./data"
@@ -121,9 +121,8 @@ def auth_flow():
         st.write("Token response:", token_data)
         if "access_token" in token_data:
             st.session_state["user_token"] = token_data["access_token"]
-            # Clear query params to prevent reusing code on reload
-            st.set_query_params()
-            st.experimental_rerun()
+            st.query_params.clear()  # <- clear in-place
+            st.rerun()
         else:
             st.error("Microsoft login failed. Please try again.")
             st.stop()
@@ -377,6 +376,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
