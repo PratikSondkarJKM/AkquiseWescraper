@@ -370,8 +370,14 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
 
 
 # ------------------- MAIN STREAMLIT APP -------------------
+import streamlit as st
+import tempfile
+import os
+# … other imports …
+
+# (Ensure your logging setup is already at top, etc.)
+
 def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
-    auth_flow()
     temp_json = tempfile.mktemp(suffix=".json")
     fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, temp_json)
     with open(temp_json, "r", encoding="utf-8") as f:
@@ -402,61 +408,90 @@ def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
     ]
     ws.append(headers)
     for r in rows:
-        ws.append([r.get(h,"") for h in headers])
+        ws.append([r.get(h, "") for h in headers])
     last_row = len(rows) + 1
     last_col = len(headers)
     table_range = f"A1:{get_column_letter(last_col)}{last_row}"
     table = Table(displayName="Teddata", ref=table_range)
-    style = TableStyleInfo(name="TableStyleMedium9", showFirstColumn=False,
-                           showLastColumn=False, showRowStripes=True, showColumnStripes=False)
+    style = TableStyleInfo(
+        name="TableStyleMedium9",
+        showFirstColumn=False,
+        showLastColumn=False,
+        showRowStripes=True,
+        showColumnStripes=False,
+    )
     table.tableStyleInfo = style
     ws.add_table(table)
     wb.save(output_excel)
     os.remove(temp_json)
 
-st.set_page_config(page_title="TED Scraper", layout="centered")
-st.markdown("# 📄 TED EU Notice Scraper")
-st.markdown("Download TED procurement notices to Excel (data is exported as a table for Power Automate).")
-with st.expander("ℹ️ How this works / Instructions", expanded=False):
-    st.write("""
-    1. Enter your filters (CPV, date range, country, filename).
-    2. Click **Run Scraper**. The script downloads notices and attachments, saves an Excel file.
-    3. Use the download button to save the Excel file wherever you want!
-    4. The exported file now contains an Excel table named 'TEDData', ready for Power Automate!
-    """)
-c1, c2 = st.columns(2)
-with c1:
-    cpv_codes = st.text_input("🔎 CPV Codes (space separated)", "71541000 71500000 71240000 79421000 71000000 71248000 71312000 71700000 71300000 71520000 71250000 90712000 71313000")
-with c2:
-    buyer_country = st.text_input("🌍 Buyer Country (ISO Alpha-3)", "DEU")
-today = date.today()
-date_col1, date_col2 = st.columns(2)
-with date_col1:
-    start_date_obj = st.date_input("📆 Start Publication Date", value=date(today.year, today.month, today.day))
-with date_col2:
-    end_date_obj = st.date_input("📆 End Publication Date", value=date(today.year, today.month, today.day))
-date_start = start_date_obj.strftime("%Y%m%d")
-date_end   = end_date_obj.strftime("%Y%m%d")
-output_excel = st.text_input("💾 Output Excel filename", f"ted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
-run = st.button("▶️ Run Scraper")
-if run:
-    st.info("Scraping... Please wait (can take a few minutes).")
-    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_excel:
-        try:
-            main_scraper(cpv_codes, date_start, date_end, buyer_country, temp_excel.name)
-            st.success("Done! Download your Excel file below.")
-            with open(temp_excel.name, "rb") as f:
-                st.download_button(
-                    label="⬇️ Download Excel",
-                    data=f.read(),
-                    file_name=output_excel,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-        except Exception as e:
-            st.error(f"Error: {e}")
-        finally:
-            temp_excel.close()
-            os.remove(temp_excel.name)
+
+def main():
+    st.set_page_config(page_title="TED Scraper (Secure)", layout="centered")
+
+    # 1. Ensure user is authenticated
+    auth_flow()
+
+    # 2. Once authenticated, show your scraper UI
+    st.header("TED EU Notice Scraper")
+    st.write("Download TED procurement notices to Excel (data is exported as a table for Power Automate).")
+
+    with st.expander("ℹ️ How this works / Instructions", expanded=False):
+        st.write("""
+        1. Enter your filters (CPV, date range, country, filename).
+        2. Click **Run Scraper**. The script downloads notices and attachments, saves an Excel file.
+        3. Use the download button to save the Excel file wherever you want!
+        4. The exported file now contains an Excel table named 'TEDData', ready for Power Automate!
+        """)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        cpv_codes = st.text_input(
+            "🔎 CPV Codes (space separated)",
+            "71541000 71500000 71240000 79421000 71000000 71248000 71312000 71700000 71300000 71520000 71250000 90712000 71313000",
+        )
+    with c2:
+        buyer_country = st.text_input("🌍 Buyer Country (ISO Alpha-3)", "DEU")
+
+    today = date.today()
+    date_col1, date_col2 = st.columns(2)
+    with date_col1:
+        start_date_obj = st.date_input("📆 Start Publication Date", value=today)
+    with date_col2:
+        end_date_obj = st.date_input("📆 End Publication Date", value=today)
+
+    date_start = start_date_obj.strftime("%Y%m%d")
+    date_end = end_date_obj.strftime("%Y%m%d")
+
+    output_excel = st.text_input(
+        "💾 Output Excel filename",
+        f"ted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+    )
+
+    if st.button("▶️ Run Scraper"):
+        st.info("Scraping... Please wait (can take a few minutes).")
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_excel:
+            try:
+                main_scraper(cpv_codes, date_start, date_end, buyer_country, temp_excel.name)
+                st.success("Done! Download your Excel file below.")
+                with open(temp_excel.name, "rb") as f:
+                    st.download_button(
+                        label="⬇️ Download Excel",
+                        data=f.read(),
+                        file_name=output_excel,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+            except Exception as e:
+                st.error(f"Error during scraping: {e}")
+            finally:
+                temp_excel.close()
+                if os.path.exists(temp_excel.name):
+                    os.remove(temp_excel.name)
+
+if __name__ == "__main__":
+    main()
+
+
 
 
 
