@@ -321,57 +321,145 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
                 if currency:
                     value_text += f" {currency}"
                 break
-    out["Projektvolumen / Geschätzter Wert"] = value_text or ""
+    out["Projektvolumen"] = value_text or ""
+
+    # --- Main fix for Frist Abgabedatum: try both cac: and efac: InterestExpressionReceptionPeriod ---
+    tender_deadline_date = _norm_date(
+        _first_text(root.xpath(".//cac:TenderSubmissionDeadlinePeriod/cbc:EndDate", namespaces=ns))
+    )
+    if not tender_deadline_date:
+        tender_deadline_date = _norm_date(
+            _first_text(root.xpath(".//cac:TenderingTerms/cbc:SubmissionDeadlineDate", namespaces=ns))
+        )
+    if not tender_deadline_date:
+        tender_deadline_date = _norm_date(
+            _first_text(root.xpath(".//cac:InterestExpressionReceptionPeriod/cbc:EndDate", namespaces=ns))
+        )
+    if not tender_deadline_date:
+        tender_deadline_date = _norm_date(
+            _first_text(root.xpath(".//efac:InterestExpressionReceptionPeriod/cbc:EndDate", namespaces=ns))
+        )
+    participation_deadline_date = _norm_date(
+        _first_text(root.xpath(".//cac:ParticipationRequestReceptionPeriod/cbc:EndDate", namespaces=ns))
+    )
+    if not participation_deadline_date:
+        participation_deadline_date = _norm_date(
+            _first_text(root.xpath(".//efac:ParticipationRequestReceptionPeriod/cbc:EndDate", namespaces=ns))
+        )
+    out["Frist Abgabedatum"] = tender_deadline_date or participation_deadline_date
+
+    # Veröffentlichung Datum
+    pub_date = _first_text(root.xpath(".//efbc:PublicationDate", namespaces=ns))
+    if not pub_date:
+        pub_date = _first_text(root.xpath(".//cbc:PublicationDate", namespaces=ns))
+    out["Veröffentlichung Datum"] = _norm_date(pub_date)
+
+    # CPV Codes - unique
+    cpv_codes_set = set()
+    main_cpv_nodes = root.xpath(".//cac:MainCommodityClassification/cbc:ItemClassificationCode", namespaces=ns)
+    for node in main_cpv_nodes:
+        if node.text:
+            cpv_codes_set.add(node.text.strip())
+    add_cpv_nodes = root.xpath(".//cac:AdditionalCommodityClassification/cbc:ItemClassificationCode", namespaces=ns)
+    for node in add_cpv_nodes:
+        if node.text:
+            cpv_codes_set.add(node.text.strip())
+    out["CPV Codes"] = ", ".join(sorted(cpv_codes_set))
+
     return out
 
-# ------------------- MAIN STREAMLIT APP -------------------
-def main():
-    st.set_page_config(page_title="TED Scraper (Secure)", layout="centered")
-    auth_flow()  # Show login card if not logged in, otherwise continue on the same page
 
-    # --- After login: show main Excel scraping workflow HERE (same page) ---
-    st.header("TED EU Notice Scraper")
-    st.write("Download TED procurement notices to Excel (data is exported as a table for Power Automate).")
-    if st.button("Run TED Scraper"):
-        with st.spinner("Fetching notices, please wait..."):
-            fetch_all_notices_to_json()
-            with open(JSON_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            notices = data.get("results") or data.get("items") or data.get("notices") or []
-            s = requests.Session()
-            rows = []
-            for n in notices:
-                pubno = n.get("publication-number")
-                if not pubno:
-                    continue
-                try:
-                    xml_bytes = fetch_notice_xml(s, pubno, n)
-                    fields = parse_xml_fields(xml_bytes)
-                    fields["publication-number"] = pubno
-                    fields.setdefault("Ted-Link", f"https://ted.europa.eu/en/notice/-/detail/{pubno}")
-                    rows.append(fields)
-                except Exception as e:
-                    st.write(f"ERR {pubno}: {e}")
-                    continue
-                time.sleep(0.15)
-            wb = openpyxl.Workbook()
-            ws = wb.active
-            headers = [
-                "publication-number","Beschaffer","Projektbezeichnung","Ort/Region",
-                "Vergabeplattform","Ted-Link","Projektstart","Projektende",
-                "Geforderte Unternehmensreferenzen","Geforderte Kriterien CVs",
-                "Projektvolumen / Geschätzter Wert"
-            ]
-            ws.append(headers)
-            for r in rows:
-                ws.append([r.get(h,"") for h in headers])
-            wb.save(EXCEL_OUT)
-        st.success("Done! Download your Excel file below.")
-        with open(EXCEL_OUT, "rb") as f:
-            st.download_button("Download Results Excel", data=f, file_name=os.path.basename(EXCEL_OUT))
+# ------------------- MAIN STREAMLIT APP -------------------
+def main(cpv_codes, date_start, date_end, buyer_country, output_excel):
+    temp_json = tempfile.mktemp(suffix=".json")
+    fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, temp_json)
+    with open(temp_json, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    notices = data.get("results") or data.get("items") or data.get("notices") or []
+    s = requests.Session()
+    rows = []
+    for n in notices:
+        pubno = n.get("publication-number")
+        if not pubno:
+            continue
+        try:
+            xml_bytes = fetch_notice_xml(s, pubno, n)
+            fields = parse_xml_fields(xml_bytes)
+            fields["publication-number"] = pubno
+            fields.setdefault("Ted-Link", f"https://ted.europa.eu/en/notice/-/detail/{pubno}")
+            rows.append(fields)
+        except Exception as e:
+            print(f"ERR {pubno}: {e}")
+        time.sleep(0.25)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    headers = [
+        "publication-number","Beschaffer","Projektbezeichnung","Ort/Region",
+        "Vergabeplattform","Ted-Link","Projektstart","Projektende",
+        "Geforderte Unternehmensreferenzen","Geforderte Kriterien CVs",
+        "Projektvolumen", "Frist Abgabedatum", "Veröffentlichung Datum", "CPV Codes"
+    ]
+    ws.append(headers)
+    for r in rows:
+        ws.append([r.get(h,"") for h in headers])
+    last_row = len(rows) + 1
+    last_col = len(headers)
+    table_range = f"A1:{get_column_letter(last_col)}{last_row}"
+    table = Table(displayName="Teddata", ref=table_range)
+    style = TableStyleInfo(name="TableStyleMedium9", showFirstColumn=False,
+                           showLastColumn=False, showRowStripes=True, showColumnStripes=False)
+    table.tableStyleInfo = style
+    ws.add_table(table)
+    wb.save(output_excel)
+    os.remove(temp_json)
+
+st.set_page_config(page_title="TED Scraper", layout="centered")
+st.markdown("# 📄 TED EU Notice Scraper")
+st.markdown("Download TED procurement notices to Excel (data is exported as a table for Power Automate).")
+with st.expander("ℹ️ How this works / Instructions", expanded=False):
+    st.write("""
+    1. Enter your filters (CPV, date range, country, filename).
+    2. Click **Run Scraper**. The script downloads notices and attachments, saves an Excel file.
+    3. Use the download button to save the Excel file wherever you want!
+    4. The exported file now contains an Excel table named 'TEDData', ready for Power Automate!
+    """)
+c1, c2 = st.columns(2)
+with c1:
+    cpv_codes = st.text_input("🔎 CPV Codes (space separated)", "71541000 71500000 71240000 79421000 71000000 71248000 71312000 71700000 71300000 71520000 71250000 90712000 71313000")
+with c2:
+    buyer_country = st.text_input("🌍 Buyer Country (ISO Alpha-3)", "DEU")
+today = date.today()
+date_col1, date_col2 = st.columns(2)
+with date_col1:
+    start_date_obj = st.date_input("📆 Start Publication Date", value=date(today.year, today.month, today.day))
+with date_col2:
+    end_date_obj = st.date_input("📆 End Publication Date", value=date(today.year, today.month, today.day))
+date_start = start_date_obj.strftime("%Y%m%d")
+date_end   = end_date_obj.strftime("%Y%m%d")
+output_excel = st.text_input("💾 Output Excel filename", f"ted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+run = st.button("▶️ Run Scraper")
+if run:
+    st.info("Scraping... Please wait (can take a few minutes).")
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_excel:
+        try:
+            main_scraper(cpv_codes, date_start, date_end, buyer_country, temp_excel.name)
+            st.success("Done! Download your Excel file below.")
+            with open(temp_excel.name, "rb") as f:
+                st.download_button(
+                    label="⬇️ Download Excel",
+                    data=f.read(),
+                    file_name=output_excel,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+        except Exception as e:
+            st.error(f"Error: {e}")
+        finally:
+            temp_excel.close()
+            os.remove(temp_excel.name)
 
 if __name__ == "__main__":
     main()
+
 
 
 
