@@ -6,9 +6,6 @@ from io import BytesIO
 import openpyxl
 from msal import ConfidentialClientApplication
 
-import logging
-logging.basicConfig(level=logging.DEBUG)
-logging.getLogger("msal").setLevel(logging.DEBUG)
 
 # ------------------- CONFIGURATION -------------------
 CLIENT_ID = st.secrets["CLIENT_ID"]
@@ -115,13 +112,7 @@ def login_button():
 def auth_flow():
     params = st.query_params
     if "code" in params and "user_token" not in st.session_state:
-        st.write("params[code]:", params["code"])
-        st.write("REDIRECT_URI:", REDIRECT_URI)
-        st.write("CLIENT_ID:", CLIENT_ID)
-        st.write("TENANT_ID:", TENANT_ID)
-        st.write("SCOPE:", SCOPE)
         code = params["code"]
-        st.write("TYPE:", type(params["code"]))
         token_data = fetch_token(code)
         st.write("Token response:", token_data)
         if "access_token" in token_data:
@@ -381,6 +372,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
