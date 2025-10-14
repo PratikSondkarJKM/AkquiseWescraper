@@ -120,7 +120,7 @@ def auth_flow():
         st.write("CLIENT_ID:", CLIENT_ID)
         st.write("TENANT_ID:", TENANT_ID)
         st.write("SCOPE:", SCOPE)
-        code = params["code"][0]
+        code = params["code"]
         st.write("TYPE:", type(params["code"]))
         token_data = fetch_token(code)
         st.write("Token response:", token_data)
@@ -381,6 +381,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
