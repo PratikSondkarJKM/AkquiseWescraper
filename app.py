@@ -6,6 +6,10 @@ from io import BytesIO
 import openpyxl
 from msal import ConfidentialClientApplication
 
+import logging
+logging.basicConfig(level=logging.DEBUG)
+logging.getLogger("msal").setLevel(logging.DEBUG)
+
 # ------------------- CONFIGURATION -------------------
 CLIENT_ID = st.secrets["CLIENT_ID"]
 CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
@@ -376,6 +380,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
