@@ -11,7 +11,7 @@ CLIENT_ID = st.secrets["CLIENT_ID"]
 CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
 TENANT_ID = st.secrets["TENANT_ID"]
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
-SCOPE = ["scope=openid profile email https://graph.microsoft.com/User.Read"]
+SCOPE = ["openid profile email https://graph.microsoft.com/User.Read"]
 REDIRECT_URI = st.secrets["REDIRECT_URI"]
 
 BASE_PATH = "./data"
@@ -377,6 +377,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
