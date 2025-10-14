@@ -371,6 +371,7 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
 
 # ------------------- MAIN STREAMLIT APP -------------------
 def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
+    auth_flow()
     temp_json = tempfile.mktemp(suffix=".json")
     fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, temp_json)
     with open(temp_json, "r", encoding="utf-8") as f:
@@ -456,6 +457,7 @@ if run:
         finally:
             temp_excel.close()
             os.remove(temp_excel.name)
+
 
 
 
