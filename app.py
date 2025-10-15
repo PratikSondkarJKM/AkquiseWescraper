@@ -250,6 +250,7 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
     ns.setdefault("cac","urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2")
     ns.setdefault("efac","http://data.europa.eu/p27/eforms-ubl-extension-aggregate-components/1")
     ns.setdefault("efbc","http://data.europa.eu/p27/eforms-ubl-extension-basic-components/1")
+
     out = {}
     out["Beschaffer"] = _first_text(
         root.xpath(".//cac:ContractingParty//cac:PartyName/cbc:Name", namespaces=ns)
@@ -264,6 +265,7 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
     )
     pub_id = _first_text(root.xpath(".//efbc:NoticePublicationID[@schemeName='ojs-notice-id']", namespaces=ns))
     out["Ted-Link"] = f"https://ted.europa.eu/en/notice/-/detail/{pub_id}" if pub_id else ""
+
     start_nodes = root.xpath(
         ".//cac:ProcurementProject/cac:PlannedPeriod/cbc:StartDate "
         "| .//cac:ProcurementProjectLot//cac:ProcurementProject/cac:PlannedPeriod/cbc:StartDate",
@@ -276,6 +278,7 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
     )
     start_norm = _norm_date(_first_text(start_nodes))
     end_norm = _norm_date(_first_text(end_nodes))
+
     if not start_norm and end_norm:
         dur_nodes = root.xpath(
             ".//cac:ProcurementProject/cac:PlannedPeriod/cbc:DurationMeasure "
@@ -294,8 +297,10 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
             end_dt = _parse_iso_date(end_norm)
             if end_dt:
                 start_norm = (end_dt - timedelta(days=days)).strftime("%Y-%m-%d")
+
     out["Projektstart"] = start_norm
     out["Projektende"] = end_norm
+
     crit_nodes = root.xpath(
         ".//*[contains(local-name(),'SelectionCriteria') or contains(local-name(),'SelectionCriterion')]/cbc:Description",
         namespaces=ns
@@ -306,6 +311,7 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
     out["Geforderte Kriterien CVs"] = "CV" if re.search(
         r"\b(CV|Lebenslauf|Schlüsselpersonal|key staff|personaleinsatz)\b", crit_text, re.I
     ) else ""
+
     amount_nodes = root.xpath(
         ".//cbc:EstimatedOverallContractAmount | .//cbc:EstimatedOverallContractAmount/cbc:Value | .//efbc:EstimatedValue | .//cbc:PayableAmount",
         namespaces=ns
@@ -362,6 +368,17 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
             cpv_codes_set.add(node.text.strip())
     out["CPV Codes"] = ", ".join(sorted(cpv_codes_set))
 
+    # -- Extract Leistungen/Rollen (Lot Name) from ProcurementProjectLot --
+    lots = root.xpath(".//cac:ProcurementProjectLot", namespaces=ns)
+    lot_names = []
+    for lot in lots:
+        lot_name = lot.xpath(".//cac:ProcurementProject/cbc:Name", namespaces=ns)
+        if lot_name and len(lot_name) > 0:
+            text = lot_name[0].text.strip()
+            if text:
+                lot_names.append(text)
+    out["Leistungen/Rollen"] = "; ".join(lot_names)
+
     return out
 
 def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
@@ -391,7 +408,7 @@ def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
         "publication-number","Beschaffer","Projektbezeichnung","Ort/Region",
         "Vergabeplattform","Ted-Link","Projektstart","Projektende",
         "Geforderte Unternehmensreferenzen","Geforderte Kriterien CVs",
-        "Projektvolumen", "Frist Abgabedatum", "Veröffentlichung Datum", "CPV Codes"
+        "Projektvolumen", "Frist Abgabedatum", "Veröffentlichung Datum", "CPV Codes", "Leistungen/Rollen"
     ]
     ws.append(headers)
     for r in rows:
@@ -412,7 +429,7 @@ def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
     wb.save(output_excel)
     os.remove(temp_json)
 
-# ------------------- MAIN STREAMLIT APP -------------------
+
 def main():
     st.set_page_config(page_title="TED Scraper (Secure)", layout="centered")
     auth_flow()
