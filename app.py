@@ -534,7 +534,7 @@ def main():
     
     /* Main container with padding for fixed input */
     .main .block-container {
-        padding-bottom: 150px !important;
+        padding-bottom: 180px !important;
         max-width: 48rem !important;
         margin: 0 auto !important;
     }
@@ -571,20 +571,44 @@ def main():
         margin: 0 auto !important;
     }
     
-    /* Larger input field */
+    /* Larger vertical input field */
     [data-testid="stChatInput"] {
         background-color: #40414f !important;
         color: #ececf1 !important;
         border: 1px solid #565869 !important;
         border-radius: 0.75rem !important;
-        padding: 1rem 3rem 1rem 1rem !important;
+        padding: 1.25rem 3.5rem 1.25rem 3rem !important;
         font-size: 1rem !important;
-        min-height: 52px !important;
+        min-height: 70px !important;
+        line-height: 1.5 !important;
     }
     
     [data-testid="stChatInput"]:focus {
         border-color: #10a37f !important;
         box-shadow: 0 0 0 1px #10a37f !important;
+    }
+    
+    /* Attach button in input field */
+    .attach-button-container {
+        position: fixed;
+        bottom: 2rem;
+        left: calc(50% - 22rem);
+        z-index: 1001;
+    }
+    
+    .attach-button-container button {
+        background-color: transparent !important;
+        border: none !important;
+        color: #8e8ea0 !important;
+        font-size: 1.5rem !important;
+        padding: 0.5rem !important;
+        cursor: pointer !important;
+        transition: color 0.2s !important;
+    }
+    
+    .attach-button-container button:hover {
+        color: #ececf1 !important;
+        background-color: transparent !important;
     }
     
     /* Text and headers */
@@ -610,48 +634,11 @@ def main():
         background-color: #1a7f64 !important;
     }
     
-    /* Avatar styling - larger */
+    /* Avatar styling - person icon for user */
     [data-testid="stChatMessage"] img {
         border-radius: 0.25rem !important;
         width: 32px !important;
         height: 32px !important;
-    }
-    
-    /* File uploader - compact inline style */
-    [data-testid="stFileUploader"] {
-        position: fixed !important;
-        bottom: 1.5rem !important;
-        right: calc(50% - 24rem + 1rem) !important;
-        z-index: 1000 !important;
-        width: auto !important;
-    }
-    
-    [data-testid="stFileUploader"] > div {
-        background-color: transparent !important;
-        border: none !important;
-        padding: 0 !important;
-    }
-    
-    [data-testid="stFileUploader"] button {
-        background-color: transparent !important;
-        border: none !important;
-        color: #8e8ea0 !important;
-        padding: 0.5rem !important;
-        font-size: 1.25rem !important;
-        cursor: pointer !important;
-    }
-    
-    [data-testid="stFileUploader"] button:hover {
-        color: #ececf1 !important;
-    }
-    
-    [data-testid="stFileUploader"] section {
-        display: none !important;
-    }
-    
-    /* Hide default file upload text */
-    [data-testid="stFileUploader"] label {
-        display: none !important;
     }
     
     /* Success/Info/Warning boxes */
@@ -705,6 +692,14 @@ def main():
         background-color: #444654 !important;
         color: #ececf1 !important;
         border-radius: 0.5rem !important;
+    }
+    
+    /* File uploader in sidebar */
+    [data-testid="stFileUploader"] {
+        background-color: #40414f !important;
+        border: 1px dashed #565869 !important;
+        border-radius: 0.5rem !important;
+        padding: 1rem !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -802,12 +797,13 @@ def main():
             if "document_store" not in st.session_state:
                 st.session_state.document_store = {}
             
+            # File uploader in sidebar under Document Library
             library_files = st.file_uploader(
                 "Upload Documents", 
                 type=['pdf', 'docx', 'txt'],
                 accept_multiple_files=True,
                 key="library_uploader",
-                help="Upload PDFs, Word documents, or text files"
+                help="Upload PDFs, Word documents, or text files to library"
             )
             
             if library_files:
@@ -865,37 +861,56 @@ def main():
                     Ich kann Ihnen helfen, Fragen zu Ihren Dokumenten zu beantworten. 
                     
                     **So funktioniert's:**
-                    - 📎 Laden Sie Dokumente in der Seitenleiste hoch
-                    - 📄 Oder nutzen Sie die Datei-Schaltfläche unten
+                    - 📎 Laden Sie Dokumente in der Seitenleiste hoch (Document Library)
+                    - 📄 Oder nutzen Sie die Datei-Schaltfläche unten im Chat
                     - ❓ Stellen Sie Fragen zu den Inhalten
                     - 🔍 Ich analysiere die Dokumente und antworte präzise
                     
                     Womit kann ich Ihnen helfen?
                     """)
             
-            # Display chat history with smiling emoji for user
+            # Display chat history with person icon for user
             for message in st.session_state.chat_messages:
-                avatar = JKM_LOGO_URL if message["role"] == "assistant" else "😊"
+                avatar = JKM_LOGO_URL if message["role"] == "assistant" else "👨"
                 with st.chat_message(message["role"], avatar=avatar):
                     st.markdown(message["content"])
             
-            # File upload button (positioned near input via CSS)
-            chat_file = st.file_uploader(
-                "📎", 
-                type=['pdf', 'docx', 'txt'],
-                key="chat_uploader",
-                help="Attach a document",
-                label_visibility="collapsed"
-            )
+            # Initialize file uploader state
+            if "chat_file_uploader_key" not in st.session_state:
+                st.session_state.chat_file_uploader_key = 0
             
-            if chat_file:
-                if "current_chat_doc" not in st.session_state or st.session_state.get("current_chat_doc_name") != chat_file.name:
-                    with st.spinner(f"Processing {chat_file.name}..."):
-                        text = process_uploaded_file(chat_file)
-                        if text:
-                            st.session_state.current_chat_doc = text
-                            st.session_state.current_chat_doc_name = chat_file.name
-                            st.success(f"✅ {chat_file.name} loaded")
+            # Attach button container (positioned with CSS)
+            st.markdown('<div class="attach-button-container">', unsafe_allow_html=True)
+            
+            # Toggle for file uploader
+            if "show_file_uploader" not in st.session_state:
+                st.session_state.show_file_uploader = False
+            
+            if st.button("📎", key="attach_btn", help="Attach a file"):
+                st.session_state.show_file_uploader = not st.session_state.show_file_uploader
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # File uploader (conditionally shown)
+            if st.session_state.show_file_uploader:
+                chat_file = st.file_uploader(
+                    "Choose a file", 
+                    type=['pdf', 'docx', 'txt'],
+                    key=f"chat_uploader_{st.session_state.chat_file_uploader_key}",
+                    help="Upload a document for this conversation"
+                )
+                
+                if chat_file:
+                    if "current_chat_doc" not in st.session_state or st.session_state.get("current_chat_doc_name") != chat_file.name:
+                        with st.spinner(f"Processing {chat_file.name}..."):
+                            text = process_uploaded_file(chat_file)
+                            if text:
+                                st.session_state.current_chat_doc = text
+                                st.session_state.current_chat_doc_name = chat_file.name
+                                st.success(f"✅ {chat_file.name} loaded")
+                                st.session_state.show_file_uploader = False
+                                st.session_state.chat_file_uploader_key += 1
+                                st.rerun()
             
             # Chat input (fixed at bottom via CSS)
             if prompt := st.chat_input("Message JKM AI Assistant..."):
@@ -919,7 +934,7 @@ def main():
                     
                     # Add user message to chat
                     st.session_state.chat_messages.append({"role": "user", "content": prompt})
-                    with st.chat_message("user", avatar="😊"):
+                    with st.chat_message("user", avatar="👨"):
                         st.markdown(prompt)
                     
                     # Prepare messages for API
