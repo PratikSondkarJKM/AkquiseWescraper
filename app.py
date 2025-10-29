@@ -34,7 +34,7 @@ API = "https://api.ted.europa.eu/v3/notices/search"
 
 # Avatars - SWAPPED: Assistant = JKM Logo, User = Bot
 JKM_LOGO_URL = "https://www.xing.com/imagecache/public/scaled_original_image/eyJ1dWlkIjoiMGE2MTk2MTYtODI4Zi00MWZlLWEzN2ItMjczZGM2ODc5MGJmIiwiYXBwX2NvbnRleHQiOiJlbnRpdHktcGFnZXMiLCJtYXhfd2lkdGgiOjMyMCwibWF4X2hlaWdodCI6MzIwfQ?signature=a21e5c1393125a94fc9765898c25d73a064665dc3aacf872667c902d7ed9c3f9"
-BOT_AVATAR_URL = "https://www.flaticon.com/free-icon/bot_1786548?term=bot&page=1&position=30&origin=tag&related_id=1786548"
+BOT_AVATAR_URL = "https://github.com/PratikSondkarJKM/AkquiseWescraper/blob/main/assistant.png"
 
 # ------------------- AUTHENTICATION -------------------
 def build_msal_app():
@@ -1021,4 +1021,5 @@ INSTRUCTIONS:
 
 if __name__ == "__main__":
     main()
+
 
