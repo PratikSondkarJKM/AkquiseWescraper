@@ -516,7 +516,7 @@ def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_n
 def main():
     st.set_page_config(page_title="TED Scraper & AI Assistant", layout="wide", initial_sidebar_state="collapsed")
     
-    # ChatGPT-style Custom CSS
+    # ChatGPT-style Custom CSS with Fixed Bottom Input
     st.markdown("""
     <style>
     /* ChatGPT-style theme */
@@ -530,6 +530,13 @@ def main():
     
     [data-testid="stSidebar"] {
         background-color: #202123;
+    }
+    
+    /* Main container with padding for fixed input */
+    .main .block-container {
+        padding-bottom: 150px !important;
+        max-width: 48rem !important;
+        margin: 0 auto !important;
     }
     
     /* Chat message styling */
@@ -550,18 +557,34 @@ def main():
         background-color: #343541 !important;
     }
     
-    /* Input area styling */
+    /* Fixed input container at bottom */
     .stChatInputContainer {
-        background-color: #40414f !important;
-        border-radius: 0.75rem !important;
-        border: 1px solid #565869 !important;
-        padding: 0.75rem !important;
+        position: fixed !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        background-color: #343541 !important;
+        padding: 1.5rem !important;
+        border-top: 1px solid #565869 !important;
+        z-index: 999 !important;
+        max-width: 48rem !important;
+        margin: 0 auto !important;
     }
     
+    /* Larger input field */
     [data-testid="stChatInput"] {
-        background-color: transparent !important;
+        background-color: #40414f !important;
         color: #ececf1 !important;
-        border: none !important;
+        border: 1px solid #565869 !important;
+        border-radius: 0.75rem !important;
+        padding: 1rem 3rem 1rem 1rem !important;
+        font-size: 1rem !important;
+        min-height: 52px !important;
+    }
+    
+    [data-testid="stChatInput"]:focus {
+        border-color: #10a37f !important;
+        box-shadow: 0 0 0 1px #10a37f !important;
     }
     
     /* Text and headers */
@@ -587,19 +610,55 @@ def main():
         background-color: #1a7f64 !important;
     }
     
-    /* Avatar styling */
+    /* Avatar styling - larger */
     [data-testid="stChatMessage"] img {
         border-radius: 0.25rem !important;
-        width: 30px !important;
-        height: 30px !important;
+        width: 32px !important;
+        height: 32px !important;
     }
     
-    /* File uploader */
+    /* File uploader - compact inline style */
     [data-testid="stFileUploader"] {
-        background-color: #40414f !important;
-        border: 1px dashed #565869 !important;
+        position: fixed !important;
+        bottom: 1.5rem !important;
+        right: calc(50% - 24rem + 1rem) !important;
+        z-index: 1000 !important;
+        width: auto !important;
+    }
+    
+    [data-testid="stFileUploader"] > div {
+        background-color: transparent !important;
+        border: none !important;
+        padding: 0 !important;
+    }
+    
+    [data-testid="stFileUploader"] button {
+        background-color: transparent !important;
+        border: none !important;
+        color: #8e8ea0 !important;
+        padding: 0.5rem !important;
+        font-size: 1.25rem !important;
+        cursor: pointer !important;
+    }
+    
+    [data-testid="stFileUploader"] button:hover {
+        color: #ececf1 !important;
+    }
+    
+    [data-testid="stFileUploader"] section {
+        display: none !important;
+    }
+    
+    /* Hide default file upload text */
+    [data-testid="stFileUploader"] label {
+        display: none !important;
+    }
+    
+    /* Success/Info/Warning boxes */
+    .stSuccess, .stInfo, .stWarning {
+        background-color: #444654 !important;
+        color: #ececf1 !important;
         border-radius: 0.5rem !important;
-        padding: 1rem !important;
     }
     
     /* Tabs */
@@ -622,20 +681,6 @@ def main():
         color: #10a37f !important;
     }
     
-    /* Success/Info/Warning boxes */
-    .stSuccess, .stInfo, .stWarning {
-        background-color: #444654 !important;
-        color: #ececf1 !important;
-        border-radius: 0.5rem !important;
-    }
-    
-    /* Expander */
-    .streamlit-expanderHeader {
-        background-color: #444654 !important;
-        color: #ececf1 !important;
-        border-radius: 0.5rem !important;
-    }
-    
     /* Input fields */
     .stTextInput input, .stDateInput input, .stSelectbox select {
         background-color: #40414f !important;
@@ -655,28 +700,11 @@ def main():
         color: white !important;
     }
     
-    /* Custom file upload button */
-    .upload-btn-wrapper {
-        position: relative;
-        display: inline-block;
-        margin-bottom: 0.5rem;
-    }
-    
-    .upload-btn {
-        background-color: transparent;
-        color: #8e8ea0;
-        padding: 0.5rem;
-        border-radius: 0.375rem;
-        cursor: pointer;
-        border: 1px solid #565869;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        font-size: 0.875rem;
-    }
-    
-    .upload-btn:hover {
-        background-color: #40414f;
+    /* Expander */
+    .streamlit-expanderHeader {
+        background-color: #444654 !important;
+        color: #ececf1 !important;
+        border-radius: 0.5rem !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -838,28 +866,27 @@ def main():
                     
                     **So funktioniert's:**
                     - 📎 Laden Sie Dokumente in der Seitenleiste hoch
+                    - 📄 Oder nutzen Sie die Datei-Schaltfläche unten
                     - ❓ Stellen Sie Fragen zu den Inhalten
                     - 🔍 Ich analysiere die Dokumente und antworte präzise
                     
                     Womit kann ich Ihnen helfen?
                     """)
             
-            # Display chat history
+            # Display chat history with smiling emoji for user
             for message in st.session_state.chat_messages:
-                avatar = JKM_LOGO_URL if message["role"] == "assistant" else "👤"
+                avatar = JKM_LOGO_URL if message["role"] == "assistant" else "😊"
                 with st.chat_message(message["role"], avatar=avatar):
                     st.markdown(message["content"])
             
-            # File upload in chat (inline with input)
-            col1, col2 = st.columns([8, 1])
-            with col1:
-                chat_file = st.file_uploader(
-                    "📎 Attach file", 
-                    type=['pdf', 'docx', 'txt'],
-                    key="chat_uploader",
-                    help="Upload a document for this conversation",
-                    label_visibility="collapsed"
-                )
+            # File upload button (positioned near input via CSS)
+            chat_file = st.file_uploader(
+                "📎", 
+                type=['pdf', 'docx', 'txt'],
+                key="chat_uploader",
+                help="Attach a document",
+                label_visibility="collapsed"
+            )
             
             if chat_file:
                 if "current_chat_doc" not in st.session_state or st.session_state.get("current_chat_doc_name") != chat_file.name:
@@ -870,7 +897,7 @@ def main():
                             st.session_state.current_chat_doc_name = chat_file.name
                             st.success(f"✅ {chat_file.name} loaded")
             
-            # Chat input
+            # Chat input (fixed at bottom via CSS)
             if prompt := st.chat_input("Message JKM AI Assistant..."):
                 # Prepare context from library and current document
                 context_parts = []
@@ -892,7 +919,7 @@ def main():
                     
                     # Add user message to chat
                     st.session_state.chat_messages.append({"role": "user", "content": prompt})
-                    with st.chat_message("user", avatar="👤"):
+                    with st.chat_message("user", avatar="😊"):
                         st.markdown(prompt)
                     
                     # Prepare messages for API
