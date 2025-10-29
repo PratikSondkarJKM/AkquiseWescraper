@@ -514,7 +514,7 @@ def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_n
 def main():
     st.set_page_config(page_title="TED Scraper & AI Assistant", layout="wide", initial_sidebar_state="collapsed")
     
-    # ChatGPT-style Custom CSS
+    # ChatGPT-style Custom CSS - NO FIXED POSITIONING
     st.markdown("""
     <style>
     /* ChatGPT-style theme */
@@ -530,10 +530,10 @@ def main():
         background-color: #202123;
     }
     
-    /* Main container - proper scrolling */
+    /* Main container */
     .main .block-container {
-        padding-bottom: 200px !important;
         padding-top: 2rem !important;
+        padding-bottom: 2rem !important;
         max-width: 48rem !important;
         margin: 0 auto !important;
     }
@@ -554,35 +554,6 @@ def main():
     /* User message - darker background */
     [data-testid="stChatMessage"][data-testid*="user"] [data-testid="stChatMessageContent"] {
         background-color: #343541 !important;
-    }
-    
-    /* Fixed file uploader above input */
-    .fixed-uploader-container {
-        position: fixed !important;
-        bottom: 80px !important;
-        left: 50% !important;
-        transform: translateX(-50%) !important;
-        width: 46rem !important;
-        max-width: 90vw !important;
-        background-color: #343541 !important;
-        padding: 0.75rem 1rem !important;
-        z-index: 998 !important;
-        border-radius: 0.5rem 0.5rem 0 0 !important;
-        border-top: 1px solid #565869 !important;
-    }
-    
-    /* Fixed input container at bottom */
-    .stChatInputContainer {
-        position: fixed !important;
-        bottom: 0 !important;
-        left: 50% !important;
-        transform: translateX(-50%) !important;
-        width: 46rem !important;
-        max-width: 90vw !important;
-        background-color: #343541 !important;
-        padding: 1rem 1.5rem !important;
-        border-top: 1px solid #565869 !important;
-        z-index: 999 !important;
     }
     
     /* Input field styling */
@@ -698,12 +669,13 @@ def main():
         background-color: transparent !important;
         border: none !important;
         padding: 0 !important;
+        margin-bottom: 1rem !important;
     }
     
     [data-testid="stFileUploader"] section {
         border: 1px dashed #565869 !important;
         border-radius: 0.5rem !important;
-        padding: 0.5rem !important;
+        padding: 0.75rem !important;
         background-color: #40414f !important;
     }
     
@@ -885,9 +857,8 @@ def main():
                 with st.chat_message(message["role"], avatar=avatar):
                     st.markdown(message["content"])
             
-            # Fixed file uploader above input
-            st.markdown('<div class="fixed-uploader-container">', unsafe_allow_html=True)
-            
+            # File uploader BEFORE chat input (flows naturally to bottom)
+            st.markdown("---")
             quick_file = st.file_uploader(
                 "📎 Drag and drop file here or click to browse", 
                 type=['pdf', 'docx', 'txt'],
@@ -904,9 +875,7 @@ def main():
                             st.success(f"✅ {quick_file.name} added")
                             st.rerun()
             
-            st.markdown('</div>', unsafe_allow_html=True)
-            
-            # Chat input
+            # Chat input (naturally flows to bottom after file uploader)
             if prompt := st.chat_input("Message JKM AI Assistant..."):
                 # Prepare context
                 context_parts = []
@@ -920,8 +889,6 @@ def main():
                 
                 # Add user message
                 st.session_state.chat_messages.append({"role": "user", "content": prompt})
-                with st.chat_message("user", avatar=USER_AVATAR_URL):
-                    st.markdown(prompt)
                 
                 # Prepare system message
                 if context_parts:
@@ -955,21 +922,28 @@ INSTRUCTIONS:
                     for m in st.session_state.chat_messages
                 ]
                 
-                # Get response
-                with st.chat_message("assistant", avatar=BOT_AVATAR_URL):
-                    try:
-                        stream = get_azure_chatbot_response(
-                            api_messages, 
-                            azure_endpoint, 
-                            azure_key, 
-                            deployment_name,
-                            api_version
-                        )
-                        response = st.write_stream(stream)
-                        st.session_state.chat_messages.append({"role": "assistant", "content": response})
-                    except Exception as e:
-                        st.error(f"❌ Error: {str(e)}")
-                        st.info("Please check your Azure configuration in secrets.toml")
+                # Get response and rerun to show updated chat
+                try:
+                    stream = get_azure_chatbot_response(
+                        api_messages, 
+                        azure_endpoint, 
+                        azure_key, 
+                        deployment_name,
+                        api_version
+                    )
+                    
+                    # Collect full response
+                    response_text = ""
+                    for chunk in stream:
+                        if chunk.choices[0].delta.content:
+                            response_text += chunk.choices[0].delta.content
+                    
+                    st.session_state.chat_messages.append({"role": "assistant", "content": response_text})
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+                    st.info("Please check your Azure configuration in secrets.toml")
 
 if __name__ == "__main__":
     main()
