@@ -29,8 +29,8 @@ SCOPE = ["https://graph.microsoft.com/User.Read"]
 
 API = "https://api.ted.europa.eu/v3/notices/search"
 
-# Avatars
-JKM_LOGO_URL = "https://www.xing.com/imagecache/public/scaled_original_image/eyJ1dWlkIjoiMGE2MTk2MTYtODI4Zi00MWZlLWEzN2ItMjczZGM2ODc5MGJmIiwiYXBwX2NvbnRleHQiOiJlbnRpdHktcGFnZXMiLCJtYXhfd2lkdGgiOjMyMCwibWF4X2hlaWdodCI6MzIwfQ?signature=a21e5c1393125a94fc9765898c25d73a064665dc3aacf872667c902d7ed9c3f9"
+# Avatars - Bot icon and user icon
+BOT_AVATAR_URL = "https://api.dicebear.com/7.x/bottts/svg?seed=JKM&backgroundColor=10a37f"
 USER_AVATAR_URL = "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix&backgroundColor=b6e3f4"
 
 # ------------------- AUTHENTICATION -------------------
@@ -100,7 +100,7 @@ def login_button():
     """, unsafe_allow_html=True)
     st.markdown(f"""
     <div class="center-root">
-        <img src="{JKM_LOGO_URL}" class="jkm-logo" alt="JKM Consult Logo"/>
+        <img src="https://www.xing.com/imagecache/public/scaled_original_image/eyJ1dWlkIjoiMGE2MTk2MTYtODI4Zi00MWZlLWEzN2ItMjczZGM2ODc5MGJmIiwiYXBwX2NvbnRleHQiOiJlbnRpdHktcGFnZXMiLCJtYXhfd2lkdGgiOjMyMCwibWF4X2hlaWdodCI6MzIwfQ?signature=a21e5c1393125a94fc9765898c25d73a064665dc3aacf872667c902d7ed9c3f9" class="jkm-logo" alt="JKM Consult Logo"/>
         <div class="app-title">TED Scraper & AI Assistant</div>
         <div class="welcome-text">
             Welcome! Access project info securely.<br>
@@ -535,7 +535,7 @@ def main():
     
     /* Main container with padding for fixed input */
     .main .block-container {
-        padding-bottom: 150px !important;
+        padding-bottom: 220px !important;
         max-width: 48rem !important;
         margin: 0 auto !important;
     }
@@ -558,18 +558,32 @@ def main():
         background-color: #343541 !important;
     }
     
+    /* Fixed file uploader container above input */
+    .fixed-uploader {
+        position: fixed !important;
+        bottom: 80px !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        width: 46rem !important;
+        max-width: 90vw !important;
+        background-color: #343541 !important;
+        padding: 1rem !important;
+        z-index: 998 !important;
+        border-radius: 0.75rem !important;
+    }
+    
     /* Fixed input container at bottom */
     .stChatInputContainer {
         position: fixed !important;
         bottom: 0 !important;
-        left: 0 !important;
-        right: 0 !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        width: 46rem !important;
+        max-width: 90vw !important;
         background-color: #343541 !important;
-        padding: 1.5rem !important;
+        padding: 1rem 1.5rem !important;
         border-top: 1px solid #565869 !important;
         z-index: 999 !important;
-        max-width: 48rem !important;
-        margin: 0 auto !important;
     }
     
     /* Input field with proper text area height */
@@ -681,12 +695,22 @@ def main():
         border-radius: 0.5rem !important;
     }
     
-    /* File uploader in sidebar */
+    /* File uploader styling */
     [data-testid="stFileUploader"] {
         background-color: #40414f !important;
         border: 1px dashed #565869 !important;
         border-radius: 0.5rem !important;
         padding: 1rem !important;
+    }
+    
+    [data-testid="stFileUploader"] section {
+        border: none !important;
+        padding: 0.5rem !important;
+    }
+    
+    [data-testid="stFileUploader"] button {
+        background-color: #565869 !important;
+        color: #ececf1 !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -779,19 +803,19 @@ def main():
             
             st.markdown("---")
             st.markdown("## 📚 Document Library")
-            st.caption("📎 Upload files here - they persist during your session")
+            st.caption("Optional: Upload files for context")
             
             # Initialize document store in session state
             if "document_store" not in st.session_state:
                 st.session_state.document_store = {}
             
-            # File uploader in sidebar under Document Library
+            # File uploader in sidebar
             library_files = st.file_uploader(
                 "Upload Documents", 
                 type=['pdf', 'docx', 'txt'],
                 accept_multiple_files=True,
                 key="library_uploader",
-                help="Upload PDFs, Word documents, or text files to library",
+                help="Upload PDFs, Word documents, or text files",
                 label_visibility="collapsed"
             )
             
@@ -839,29 +863,52 @@ def main():
             
             # Display welcome message if no chat history
             if not st.session_state.chat_messages:
-                with st.chat_message("assistant", avatar=JKM_LOGO_URL):
+                with st.chat_message("assistant", avatar=BOT_AVATAR_URL):
                     st.markdown("""
                     👋 **Willkommen beim JKM AI Assistant!**
                     
-                    Ich kann Ihnen helfen, Fragen zu Ihren Dokumenten zu beantworten. 
+                    Ich bin Ihr KI-Assistent und kann Ihnen bei verschiedenen Aufgaben helfen.
                     
-                    **So funktioniert's:**
-                    - 📎 Laden Sie Dokumente in der Seitenleiste hoch (Document Library)
-                    - ❓ Stellen Sie Fragen zu den Inhalten
-                    - 🔍 Ich analysiere die Dokumente und antworte präzise
+                    **Möglichkeiten:**
+                    - 💬 Allgemeine Fragen beantworten
+                    - 📄 Dokumente analysieren (laden Sie sie in der Seitenleiste hoch)
+                    - 🔍 Ausschreibungen prüfen
+                    - ✍️ Texte schreiben und übersetzen
                     
-                    Womit kann ich Ihnen helfen?
+                    Stellen Sie mir einfach eine Frage!
                     """)
             
-            # Display chat history with boy avatar icon
+            # Display chat history with bot and user avatars
             for message in st.session_state.chat_messages:
-                avatar = JKM_LOGO_URL if message["role"] == "assistant" else USER_AVATAR_URL
+                avatar = BOT_AVATAR_URL if message["role"] == "assistant" else USER_AVATAR_URL
                 with st.chat_message(message["role"], avatar=avatar):
                     st.markdown(message["content"])
             
+            # Fixed file uploader above input
+            st.markdown('<div class="fixed-uploader">', unsafe_allow_html=True)
+            
+            # Quick file upload option
+            quick_file = st.file_uploader(
+                "📎 Drag and drop file here", 
+                type=['pdf', 'docx', 'txt'],
+                key="quick_uploader",
+                help="Upload a document for this conversation",
+                label_visibility="visible"
+            )
+            
+            if quick_file:
+                if quick_file.name not in st.session_state.document_store:
+                    with st.spinner(f"Processing {quick_file.name}..."):
+                        text = process_uploaded_file(quick_file)
+                        if text:
+                            st.session_state.document_store[quick_file.name] = text
+                            st.success(f"✅ {quick_file.name} added to library")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+            
             # Chat input (fixed at bottom via CSS)
             if prompt := st.chat_input("Message JKM AI Assistant..."):
-                # Prepare context from library
+                # Prepare context from library if available
                 context_parts = []
                 
                 if st.session_state.document_store:
@@ -871,54 +918,56 @@ def main():
                     ])
                     context_parts.append(f"=== DOCUMENT LIBRARY ===\n{library_context}")
                 
-                if not context_parts:
-                    st.warning("⚠️ Bitte laden Sie mindestens ein Dokument in der Seitenleiste hoch.")
-                else:
+                # Add user message to chat
+                st.session_state.chat_messages.append({"role": "user", "content": prompt})
+                with st.chat_message("user", avatar=USER_AVATAR_URL):
+                    st.markdown(prompt)
+                
+                # Prepare system message
+                if context_parts:
                     full_context = "\n\n".join(context_parts)
-                    
-                    # Add user message to chat
-                    st.session_state.chat_messages.append({"role": "user", "content": prompt})
-                    with st.chat_message("user", avatar=USER_AVATAR_URL):
-                        st.markdown(prompt)
-                    
-                    # Prepare messages for API
-                    system_message = {
-                        "role": "system",
-                        "content": f"""Du bist der JKM AI Assistant - ein hilfreicher KI-Assistent für Ausschreibungen und Projektdokumente.
+                    system_content = f"""Du bist der JKM AI Assistant - ein hilfreicher KI-Assistent für Ausschreibungen und allgemeine Aufgaben.
 
-Hier sind die verfügbaren Dokumente:
+Hier sind verfügbare Dokumente:
 
 {full_context}
 
 Anweisungen:
-- Beantworte Fragen NUR basierend auf den bereitgestellten Dokumenten
-- Falls die Antwort nicht in den Dokumenten steht, sage das klar
+- Beantworte Fragen basierend auf den Dokumenten, falls vorhanden
+- Wenn keine Dokumente vorhanden sind, beantworte allgemeine Fragen hilfreich
 - Antworte immer auf Deutsch, wenn auf Deutsch gefragt wird
-- Sei präzise und zitiere spezifische Teile der Dokumente
-- Bei Ausschreibungsdokumenten: Hebe wichtige Termine, Anforderungen und Details hervor
-- Sei professionell und hilfsbereit"""
-                    }
-                    
-                    api_messages = [system_message] + [
-                        {"role": m["role"], "content": m["content"]}
-                        for m in st.session_state.chat_messages
-                    ]
-                    
-                    # Get and display response
-                    with st.chat_message("assistant", avatar=JKM_LOGO_URL):
-                        try:
-                            stream = get_azure_chatbot_response(
-                                api_messages, 
-                                azure_endpoint, 
-                                azure_key, 
-                                deployment_name,
-                                api_version
-                            )
-                            response = st.write_stream(stream)
-                            st.session_state.chat_messages.append({"role": "assistant", "content": response})
-                        except Exception as e:
-                            st.error(f"❌ Error: {str(e)}")
-                            st.info("Bitte überprüfen Sie Ihre Azure-Konfiguration in secrets.toml")
+- Sei präzise, professionell und hilfsbereit"""
+                else:
+                    system_content = """Du bist der JKM AI Assistant - ein hilfreicher KI-Assistent.
+
+Anweisungen:
+- Beantworte allgemeine Fragen hilfreich und präzise
+- Antworte immer auf Deutsch, wenn auf Deutsch gefragt wird
+- Sei professionell und freundlich
+- Bei Ausschreibungsfragen: Wenn Dokumente hochgeladen werden, analysiere sie detailliert"""
+                
+                system_message = {"role": "system", "content": system_content}
+                
+                api_messages = [system_message] + [
+                    {"role": m["role"], "content": m["content"]}
+                    for m in st.session_state.chat_messages
+                ]
+                
+                # Get and display response
+                with st.chat_message("assistant", avatar=BOT_AVATAR_URL):
+                    try:
+                        stream = get_azure_chatbot_response(
+                            api_messages, 
+                            azure_endpoint, 
+                            azure_key, 
+                            deployment_name,
+                            api_version
+                        )
+                        response = st.write_stream(stream)
+                        st.session_state.chat_messages.append({"role": "assistant", "content": response})
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+                        st.info("Bitte überprüfen Sie Ihre Azure-Konfiguration in secrets.toml")
 
 if __name__ == "__main__":
     main()
