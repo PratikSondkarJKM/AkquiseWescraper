@@ -10,6 +10,9 @@ from msal import ConfidentialClientApplication
 from openai import AzureOpenAI
 import PyPDF2
 import docx
+import pandas as pd
+import base64
+from PIL import Image
 
 # ------------------- CONFIGURATION -------------------
 def get_secret(key, default=""):
@@ -456,7 +459,7 @@ def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
     wb.save(output_excel)
     os.remove(temp_json)
 
-# ---------------- CHATBOT FUNCTIONS ----------------
+# ---------------- CHATBOT FUNCTIONS WITH IMAGE & EXCEL SUPPORT ----------------
 def extract_text_from_pdf(file):
     try:
         pdf_reader = PyPDF2.PdfReader(file)
@@ -482,17 +485,70 @@ def extract_text_from_txt(file):
     except Exception as e:
         return f"Error reading TXT: {str(e)}"
 
+def extract_text_from_excel(file):
+    try:
+        file_extension = file.name.split('.')[-1].lower()
+        
+        if file_extension == 'csv':
+            df = pd.read_csv(file)
+        else:  # xlsx or xls
+            df = pd.read_excel(file)
+        
+        # Convert DataFrame to readable text format
+        text = f"Excel File: {file.name}\n"
+        text += f"Rows: {len(df)}, Columns: {len(df.columns)}\n\n"
+        text += f"Column Names: {', '.join(df.columns.tolist())}\n\n"
+        text += "Data Preview (first 50 rows):\n"
+        text += df.head(50).to_string(index=False)
+        
+        return text
+    except Exception as e:
+        return f"Error reading Excel file: {str(e)}"
+
+def extract_text_from_image(file):
+    try:
+        image = Image.open(file)
+        
+        # Get image info
+        text = f"Image File: {file.name}\n"
+        text += f"Format: {image.format}\n"
+        text += f"Size: {image.size[0]}x{image.size[1]} pixels\n"
+        text += f"Mode: {image.mode}\n\n"
+        text += "Note: For detailed image analysis, please ask specific questions about the image content."
+        
+        return text
+    except Exception as e:
+        return f"Error reading image: {str(e)}"
+
+def encode_image_to_base64(file):
+    """Encode image to base64 for GPT-4 Vision"""
+    try:
+        image = Image.open(file)
+        buffered = BytesIO()
+        image.save(buffered, format=image.format or "PNG")
+        img_str = base64.b64encode(buffered.getvalue()).decode()
+        return img_str
+    except Exception as e:
+        return None
+
 def process_uploaded_file(uploaded_file):
     file_extension = uploaded_file.name.split('.')[-1].lower()
     
     if file_extension == 'pdf':
-        return extract_text_from_pdf(uploaded_file)
+        return extract_text_from_pdf(uploaded_file), "text"
     elif file_extension == 'docx':
-        return extract_text_from_docx(uploaded_file)
+        return extract_text_from_docx(uploaded_file), "text"
     elif file_extension == 'txt':
-        return extract_text_from_txt(uploaded_file)
+        return extract_text_from_txt(uploaded_file), "text"
+    elif file_extension in ['xlsx', 'xls', 'csv']:
+        return extract_text_from_excel(uploaded_file), "text"
+    elif file_extension in ['png', 'jpg', 'jpeg']:
+        text = extract_text_from_image(uploaded_file)
+        uploaded_file.seek(0)  # Reset file pointer
+        base64_image = encode_image_to_base64(uploaded_file)
+        return text, "image", base64_image
     else:
-        return f"Unsupported file type: {file_extension}"
+        return f"Unsupported file type: {file_extension}", "text"
 
 def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_name, api_version="2024-08-01-preview"):
     client = AzureOpenAI(
@@ -514,7 +570,7 @@ def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_n
 def main():
     st.set_page_config(page_title="TED Scraper & AI Assistant", layout="wide", initial_sidebar_state="collapsed")
     
-    # ChatGPT-style Custom CSS - NO FIXED POSITIONING
+    # ChatGPT-style Custom CSS
     st.markdown("""
     <style>
     /* ChatGPT-style theme */
@@ -776,40 +832,54 @@ def main():
             
             st.markdown("---")
             st.markdown("## 📚 Document Library")
-            st.caption("Optional: Upload files for context")
+            st.caption("Supports: PDF, Word, TXT, Excel, Images")
             
             # Initialize document store
             if "document_store" not in st.session_state:
                 st.session_state.document_store = {}
             
+            if "image_store" not in st.session_state:
+                st.session_state.image_store = {}
+            
             # File uploader in sidebar
             library_files = st.file_uploader(
                 "Upload Documents", 
-                type=['pdf', 'docx', 'txt'],
+                type=['pdf', 'docx', 'txt', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg'],
                 accept_multiple_files=True,
                 key="library_uploader",
-                help="Upload PDFs, Word documents, or text files",
+                help="Upload documents, Excel files, or images",
                 label_visibility="collapsed"
             )
             
             if library_files:
                 for uploaded_file in library_files:
-                    if uploaded_file.name not in st.session_state.document_store:
+                    if uploaded_file.name not in st.session_state.document_store and uploaded_file.name not in st.session_state.image_store:
                         with st.spinner(f"Processing {uploaded_file.name}..."):
-                            text = process_uploaded_file(uploaded_file)
-                            if text:
+                            result = process_uploaded_file(uploaded_file)
+                            
+                            if len(result) == 3:  # Image file
+                                text, file_type, base64_img = result
+                                st.session_state.document_store[uploaded_file.name] = text
+                                st.session_state.image_store[uploaded_file.name] = base64_img
+                                st.success(f"🖼️ {uploaded_file.name}")
+                            else:  # Text file
+                                text, file_type = result
                                 st.session_state.document_store[uploaded_file.name] = text
                                 st.success(f"✅ {uploaded_file.name}")
             
             if st.session_state.document_store:
-                st.markdown(f"**📁 {len(st.session_state.document_store)} document(s)**")
+                st.markdown(f"**📁 {len(st.session_state.document_store)} file(s)**")
                 for doc_name in list(st.session_state.document_store.keys()):
                     col1, col2 = st.columns([4, 1])
                     with col1:
-                        st.caption(f"• {doc_name}")
+                        # Show different icon for images
+                        icon = "🖼️" if doc_name in st.session_state.image_store else "📄"
+                        st.caption(f"{icon} {doc_name}")
                     with col2:
                         if st.button("🗑️", key=f"del_{doc_name}"):
                             del st.session_state.document_store[doc_name]
+                            if doc_name in st.session_state.image_store:
+                                del st.session_state.image_store[doc_name]
                             st.rerun()
             
             # Clear chat button
@@ -842,11 +912,16 @@ def main():
                     
                     Ich bin Ihr KI-Assistent und kann Ihnen bei verschiedenen Aufgaben helfen.
                     
+                    **Unterstützte Dateitypen:**
+                    - 📄 PDF, Word (DOCX), TXT
+                    - 📊 Excel (XLSX, XLS), CSV
+                    - 🖼️ Bilder (PNG, JPG, JPEG)
+                    
                     **Möglichkeiten:**
                     - 💬 Allgemeine Fragen beantworten
-                    - 📄 Dokumente analysieren (PDF, Word, TXT)
+                    - 📄 Dokumente und Excel-Dateien analysieren
+                    - 🖼️ Bilder beschreiben und analysieren
                     - 🔍 Ausschreibungen prüfen
-                    - ✍️ Texte schreiben und übersetzen
                     
                     Stellen Sie mir einfach eine Frage!
                     """)
@@ -857,25 +932,32 @@ def main():
                 with st.chat_message(message["role"], avatar=avatar):
                     st.markdown(message["content"])
             
-            # File uploader BEFORE chat input (flows naturally to bottom)
+            # File uploader BEFORE chat input
             st.markdown("---")
             quick_file = st.file_uploader(
-                "📎 Drag and drop file here or click to browse", 
-                type=['pdf', 'docx', 'txt'],
+                "📎 Drag and drop file here (PDF, Word, Excel, Images) or click to browse", 
+                type=['pdf', 'docx', 'txt', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg'],
                 key="quick_uploader",
-                help="Upload a document for this conversation"
+                help="Upload documents, Excel files, or images"
             )
             
             if quick_file:
-                if quick_file.name not in st.session_state.document_store:
+                if quick_file.name not in st.session_state.document_store and quick_file.name not in st.session_state.image_store:
                     with st.spinner(f"Processing {quick_file.name}..."):
-                        text = process_uploaded_file(quick_file)
-                        if text:
+                        result = process_uploaded_file(quick_file)
+                        
+                        if len(result) == 3:  # Image file
+                            text, file_type, base64_img = result
+                            st.session_state.document_store[quick_file.name] = text
+                            st.session_state.image_store[quick_file.name] = base64_img
+                            st.success(f"🖼️ {quick_file.name} added")
+                        else:  # Text file
+                            text, file_type = result
                             st.session_state.document_store[quick_file.name] = text
                             st.success(f"✅ {quick_file.name} added")
-                            st.rerun()
+                        st.rerun()
             
-            # Chat input (naturally flows to bottom after file uploader)
+            # Chat input
             if prompt := st.chat_input("Message JKM AI Assistant..."):
                 # Prepare context
                 context_parts = []
@@ -893,19 +975,37 @@ def main():
                 # Prepare system message
                 if context_parts:
                     full_context = "\n\n".join(context_parts)
-                    system_content = f"""You are JKM AI Assistant - a helpful AI assistant for tenders, procurement documents, and general tasks.
+                    
+                    # Check if we have images
+                    has_images = len(st.session_state.image_store) > 0
+                    
+                    if has_images:
+                        system_content = f"""You are JKM AI Assistant - a helpful AI assistant for documents, Excel files, images, and general tasks.
 
-You have access to the following documents:
+You have access to the following files (including images):
 
 {full_context}
 
 INSTRUCTIONS:
-- Analyze and answer questions based on the provided documents
-- Extract specific information, identify empty fields, requirements, deadlines, etc.
+- Analyze and answer questions based on the provided documents, Excel data, and images
+- For Excel files: Summarize data, identify patterns, create insights
+- For images: Describe content, identify text, analyze visual elements
+- Extract specific information, identify empty fields, requirements, deadlines
 - Always respond in German when asked in German, otherwise in English
-- Be precise, professional, and helpful
-- When analyzing PDFs: Look for specific sections, fields, tables, and requirements
-- Summarize key information clearly"""
+- Be precise, professional, and helpful"""
+                    else:
+                        system_content = f"""You are JKM AI Assistant - a helpful AI assistant for documents, Excel files, and general tasks.
+
+You have access to the following files:
+
+{full_context}
+
+INSTRUCTIONS:
+- Analyze and answer questions based on the provided documents and Excel data
+- For Excel files: Summarize data, identify patterns, create insights from tables
+- Extract specific information, identify empty fields, requirements, deadlines
+- Always respond in German when asked in German, otherwise in English
+- Be precise, professional, and helpful"""
                 else:
                     system_content = """You are JKM AI Assistant - a helpful AI assistant for general questions and tasks.
 
@@ -913,7 +1013,7 @@ INSTRUCTIONS:
 - Answer general questions helpfully and precisely
 - Always respond in German when asked in German, otherwise in English
 - Be professional and friendly
-- For procurement/tender questions: If documents are uploaded, analyze them in detail"""
+- For file analysis: Ask the user to upload documents, Excel files, or images"""
                 
                 system_message = {"role": "system", "content": system_content}
                 
@@ -922,7 +1022,7 @@ INSTRUCTIONS:
                     for m in st.session_state.chat_messages
                 ]
                 
-                # Get response and rerun to show updated chat
+                # Get response and rerun
                 try:
                     stream = get_azure_chatbot_response(
                         api_messages, 
