@@ -12,17 +12,39 @@ import PyPDF2
 import docx
 
 # ------------------- CONFIGURATION -------------------
-CLIENT_ID = st.secrets["CLIENT_ID"]
-CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
-TENANT_ID = st.secrets["TENANT_ID"]
-AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
+def get_secret(key, default=""):
+    """Safely get secrets with fallback"""
+    try:
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
+
+CLIENT_ID = get_secret("CLIENT_ID")
+CLIENT_SECRET = get_secret("CLIENT_SECRET")
+TENANT_ID = get_secret("TENANT_ID")
+REDIRECT_URI = get_secret("REDIRECT_URI", "http://localhost:8501")
+
+AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}" if TENANT_ID else ""
 SCOPE = ["https://graph.microsoft.com/User.Read"]
-REDIRECT_URI = st.secrets["REDIRECT_URI"]
 
 API = "https://api.ted.europa.eu/v3/notices/search"
 
 # ------------------- AUTHENTICATION -------------------
 def build_msal_app():
+    if not CLIENT_ID or not CLIENT_SECRET or not TENANT_ID:
+        st.error("❌ Microsoft OAuth credentials not configured!")
+        st.info("""
+        Please create `.streamlit/secrets.toml` in your project directory with:
+        
+        ```
+        CLIENT_ID = "your-client-id"
+        CLIENT_SECRET = "your-client-secret"
+        TENANT_ID = "your-tenant-id"
+        REDIRECT_URI = "http://localhost:8501"
+        ```
+        """)
+        st.stop()
+    
     return ConfidentialClientApplication(
         client_id=CLIENT_ID,
         authority=AUTHORITY,
@@ -371,7 +393,6 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
             cpv_codes_set.add(node.text.strip())
     out["CPV Codes"] = ", ".join(sorted(cpv_codes_set))
 
-    # Extract Leistungen/Rollen
     lots = root.xpath(".//cac:ProcurementProjectLot", namespaces=ns)
     lot_names = []
     for lot in lots:
@@ -434,7 +455,6 @@ def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
 
 # ---------------- CHATBOT FUNCTIONS ----------------
 def extract_text_from_pdf(file):
-    """Extract text from PDF file"""
     try:
         pdf_reader = PyPDF2.PdfReader(file)
         text = ""
@@ -446,7 +466,6 @@ def extract_text_from_pdf(file):
         return None
 
 def extract_text_from_docx(file):
-    """Extract text from DOCX file"""
     try:
         doc = docx.Document(file)
         text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
@@ -456,7 +475,6 @@ def extract_text_from_docx(file):
         return None
 
 def extract_text_from_txt(file):
-    """Extract text from TXT file"""
     try:
         return file.read().decode('utf-8')
     except Exception as e:
@@ -464,7 +482,6 @@ def extract_text_from_txt(file):
         return None
 
 def process_uploaded_file(uploaded_file):
-    """Process uploaded file and extract text"""
     file_extension = uploaded_file.name.split('.')[-1].lower()
     
     if file_extension == 'pdf':
@@ -478,7 +495,6 @@ def process_uploaded_file(uploaded_file):
         return None
 
 def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_name, api_version="2024-08-01-preview"):
-    """Get response from Azure OpenAI"""
     client = AzureOpenAI(
         azure_endpoint=azure_endpoint,
         api_key=azure_key,
@@ -566,40 +582,35 @@ def main():
         st.header("💬 Document Q&A Assistant")
         st.write("Upload documents and ask questions using Azure AI Foundry.")
         
-        # Sidebar for Azure credentials and document library
+        # Sidebar for document library
         with st.sidebar:
-            st.markdown("## 🔑 Azure AI Foundry Configuration")
+            # Get Azure credentials from secrets (auto-load)
+            azure_endpoint = get_secret("AZURE_ENDPOINT", "")
+            azure_key = get_secret("AZURE_API_KEY", "")
+            deployment_name = get_secret("DEPLOYMENT_NAME", "gpt-4o-mini")
+            api_version = "2024-08-01-preview"
             
-            # Try to get from secrets first, otherwise allow manual input
-            default_endpoint = st.secrets.get("AZURE_ENDPOINT", "")
-            default_key = st.secrets.get("AZURE_API_KEY", "")
-            default_deployment = st.secrets.get("DEPLOYMENT_NAME", "gpt-4o-mini")
-            
-            azure_endpoint = st.text_input(
-                "Azure Endpoint", 
-                value=default_endpoint,
-                placeholder="https://your-resource.openai.azure.com",
-                help="Get this from Azure AI Foundry portal → Settings → Keys and Endpoints"
-            )
-            
-            azure_key = st.text_input(
-                "Azure API Key", 
-                type="password",
-                value=default_key,
-                help="Get this from Azure AI Foundry portal → Settings → Keys and Endpoints"
-            )
-            
-            deployment_name = st.text_input(
-                "Deployment Name",
-                value=default_deployment,
-                help="The name of your deployed model (e.g., gpt-4o-mini, gpt-4o)"
-            )
-            
-            api_version = st.selectbox(
-                "API Version",
-                ["2024-08-01-preview", "2024-06-01", "2024-02-15-preview"],
-                help="Azure OpenAI API version"
-            )
+            # Show configuration status
+            st.markdown("## 🔑 Azure AI Configuration")
+            if azure_endpoint and azure_key:
+                st.success("✅ Azure credentials loaded from secrets")
+                # Show masked endpoint for confirmation
+                try:
+                    masked_endpoint = azure_endpoint.replace("https://", "").split(".")[0]
+                    st.info(f"🔗 Resource: **{masked_endpoint}**")
+                except:
+                    st.info("🔗 Endpoint configured")
+                st.info(f"🤖 Model: **{deployment_name}**")
+            else:
+                st.warning("⚠️ Azure credentials not found in secrets")
+                st.markdown("""
+                **Add to `.streamlit/secrets.toml`:**
+                ```
+                AZURE_ENDPOINT = "https://your-resource.openai.azure.com"
+                AZURE_API_KEY = "your-api-key"
+                DEPLOYMENT_NAME = "gpt-4o-mini"
+                ```
+                """)
             
             st.markdown("---")
             st.markdown("## 📚 Document Library")
@@ -639,21 +650,23 @@ def main():
         
         # Main chat interface
         if not azure_endpoint or not azure_key:
-            st.warning("⚠️ Please enter your Azure AI Foundry credentials in the sidebar to continue.")
+            st.error("❌ Azure AI Foundry credentials not configured in secrets!")
             st.info("""
-            ### 📋 How to get your credentials:
+            ### 📋 Add credentials to your secrets:
             
-            1. Open **Azure AI Foundry portal** (https://ai.azure.com)
-            2. Navigate to your **Project** → **Settings** → **Keys and Endpoints**
-            3. Copy the **Endpoint URL** and **API Key**
-            4. Make sure you have a model deployed (e.g., gpt-4o-mini)
-            
-            **Or save them in your `.streamlit/secrets.toml`:**
+            **Create/Update `.streamlit/secrets.toml`:**
             ```
-            AZURE_ENDPOINT = "https://your-resource.openai.azure.com"
-            AZURE_API_KEY = "your-api-key-here"
+            # Azure AI Foundry Configuration
+            AZURE_ENDPOINT = "https://jkm-ai.cognitiveservices.azure.com/openai/deployments/gpt-4o-mini/chat/completions?api-version=2024-08-01-preview"
+            AZURE_API_KEY = "your-api-key-from-azure"
             DEPLOYMENT_NAME = "gpt-4o-mini"
             ```
+            
+            **Get your credentials:**
+            1. Open Azure AI Foundry portal (https://ai.azure.com)
+            2. Go to your project → Settings → Keys and Endpoints
+            3. Copy the **Endpoint** and **API Key**
+            4. Make sure you have deployed a model (e.g., gpt-4o-mini)
             """)
         else:
             # Initialize chat history
@@ -744,7 +757,7 @@ Instructions:
                             st.session_state.chat_messages.append({"role": "assistant", "content": response})
                         except Exception as e:
                             st.error(f"❌ Error: {str(e)}")
-                            st.info("Please check your Azure credentials and deployment name. Make sure the model is deployed in your Azure AI Foundry project.")
+                            st.info("Please check your Azure credentials in secrets.toml. Make sure the endpoint URL and API key are correct.")
             
             # Clear chat button
             col1, col2 = st.columns([6, 1])
