@@ -32,9 +32,9 @@ SCOPE = ["https://graph.microsoft.com/User.Read"]
 
 API = "https://api.ted.europa.eu/v3/notices/search"
 
-# Avatars
+# Avatars - SWAPPED: Assistant = JKM Logo, User = Bot
+JKM_LOGO_URL = "https://www.xing.com/imagecache/public/scaled_original_image/eyJ1dWlkIjoiMGE2MTk2MTYtODI4Zi00MWZlLWEzN2ItMjczZGM2ODc5MGJmIiwiYXBwX2NvbnRleHQiOiJlbnRpdHktcGFnZXMiLCJtYXhfd2lkdGgiOjMyMCwibWF4X2hlaWdodCI6MzIwfQ?signature=a21e5c1393125a94fc9765898c25d73a064665dc3aacf872667c902d7ed9c3f9"
 BOT_AVATAR_URL = "https://api.dicebear.com/7.x/bottts/svg?seed=JKM&backgroundColor=10a37f"
-USER_AVATAR_URL = "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix&backgroundColor=b6e3f4"
 
 # ------------------- AUTHENTICATION -------------------
 def build_msal_app():
@@ -103,7 +103,7 @@ def login_button():
     """, unsafe_allow_html=True)
     st.markdown(f"""
     <div class="center-root">
-        <img src="https://www.xing.com/imagecache/public/scaled_original_image/eyJ1dWlkIjoiMGE2MTk2MTYtODI4Zi00MWZlLWEzN2ItMjczZGM2ODc5MGJmIiwiYXBwX2NvbnRleHQiOiJlbnRpdHktcGFnZXMiLCJtYXhfd2lkdGgiOjMyMCwibWF4X2hlaWdodCI6MzIwfQ?signature=a21e5c1393125a94fc9765898c25d73a064665dc3aacf872667c902d7ed9c3f9" class="jkm-logo" alt="JKM Consult Logo"/>
+        <img src="{JKM_LOGO_URL}" class="jkm-logo" alt="JKM Consult Logo"/>
         <div class="app-title">TED Scraper & AI Assistant</div>
         <div class="welcome-text">
             Welcome! Access project info securely.<br>
@@ -459,7 +459,7 @@ def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
     wb.save(output_excel)
     os.remove(temp_json)
 
-# ---------------- CHATBOT FUNCTIONS - ADDING EXCEL & IMAGE SUPPORT ----------------
+# ---------------- CHATBOT FUNCTIONS ----------------
 def extract_text_from_pdf(file):
     try:
         pdf_reader = PyPDF2.PdfReader(file)
@@ -556,7 +556,7 @@ def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_n
 def main():
     st.set_page_config(page_title="TED Scraper & AI Assistant", layout="wide", initial_sidebar_state="collapsed")
     
-    # ChatGPT-style Custom CSS
+    # ChatGPT-style Custom CSS + Thinking animation
     st.markdown("""
     <style>
     /* ChatGPT-style theme */
@@ -596,6 +596,25 @@ def main():
     /* User message - darker background */
     [data-testid="stChatMessage"][data-testid*="user"] [data-testid="stChatMessageContent"] {
         background-color: #343541 !important;
+    }
+    
+    /* Thinking animation */
+    .thinking-indicator {
+        font-style: italic;
+        color: #8e8ea0;
+        font-size: 0.9rem;
+        padding: 0.5rem 0;
+    }
+    
+    .thinking-dots::after {
+        content: '...';
+        animation: dots 1.5s steps(4, end) infinite;
+    }
+    
+    @keyframes dots {
+        0%, 20% { content: '.'; }
+        40% { content: '..'; }
+        60%, 100% { content: '...'; }
     }
     
     /* Input field styling */
@@ -824,7 +843,7 @@ def main():
             if "document_store" not in st.session_state:
                 st.session_state.document_store = {}
             
-            # File uploader in sidebar - ADDED EXCEL AND IMAGE TYPES
+            # File uploader in sidebar
             library_files = st.file_uploader(
                 "Upload Documents", 
                 type=['pdf', 'docx', 'txt', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg'],
@@ -876,9 +895,9 @@ def main():
             if "chat_messages" not in st.session_state:
                 st.session_state.chat_messages = []
             
-            # Display welcome message - KEPT ORIGINAL
+            # Display welcome message - USING JKM LOGO FOR ASSISTANT
             if not st.session_state.chat_messages:
-                with st.chat_message("assistant", avatar=BOT_AVATAR_URL):
+                with st.chat_message("assistant", avatar=JKM_LOGO_URL):
                     st.markdown("""
                     👋 **Willkommen beim JKM AI Assistant!**
                     
@@ -893,13 +912,13 @@ def main():
                     Stellen Sie mir einfach eine Frage!
                     """)
             
-            # Display chat history
+            # Display chat history - SWAPPED AVATARS
             for message in st.session_state.chat_messages:
-                avatar = BOT_AVATAR_URL if message["role"] == "assistant" else USER_AVATAR_URL
+                avatar = JKM_LOGO_URL if message["role"] == "assistant" else BOT_AVATAR_URL
                 with st.chat_message(message["role"], avatar=avatar):
                     st.markdown(message["content"])
             
-            # File uploader BEFORE chat input - ADDED EXCEL AND IMAGE TYPES
+            # File uploader BEFORE chat input
             st.markdown("---")
             quick_file = st.file_uploader(
                 "📎 Drag and drop file here or click to browse", 
@@ -929,13 +948,20 @@ def main():
                     ])
                     context_parts.append(library_context)
                 
-                # Add user message
+                # Add user message with BOT AVATAR
                 st.session_state.chat_messages.append({"role": "user", "content": prompt})
+                with st.chat_message("user", avatar=BOT_AVATAR_URL):
+                    st.markdown(prompt)
                 
-                # Prepare system message
-                if context_parts:
-                    full_context = "\n\n".join(context_parts)
-                    system_content = f"""You are JKM AI Assistant - a helpful AI assistant for tenders, procurement documents, and general tasks.
+                # Show "thinking" indicator with JKM LOGO
+                with st.chat_message("assistant", avatar=JKM_LOGO_URL):
+                    thinking_placeholder = st.empty()
+                    thinking_placeholder.markdown('<div class="thinking-indicator"><span class="thinking-dots">💭 AI denkt nach</span></div>', unsafe_allow_html=True)
+                    
+                    # Prepare system message
+                    if context_parts:
+                        full_context = "\n\n".join(context_parts)
+                        system_content = f"""You are JKM AI Assistant - a helpful AI assistant for tenders, procurement documents, and general tasks.
 
 You have access to the following documents:
 
@@ -948,46 +974,50 @@ INSTRUCTIONS:
 - Be precise, professional, and helpful
 - When analyzing PDFs: Look for specific sections, fields, tables, and requirements
 - Summarize key information clearly"""
-                else:
-                    system_content = """You are JKM AI Assistant - a helpful AI assistant for general questions and tasks.
+                    else:
+                        system_content = """You are JKM AI Assistant - a helpful AI assistant for general questions and tasks.
 
 INSTRUCTIONS:
 - Answer general questions helpfully and precisely
 - Always respond in German when asked in German, otherwise in English
 - Be professional and friendly
 - For procurement/tender questions: If documents are uploaded, analyze them in detail"""
-                
-                system_message = {"role": "system", "content": system_content}
-                
-                api_messages = [system_message] + [
-                    {"role": m["role"], "content": m["content"]}
-                    for m in st.session_state.chat_messages
-                ]
-                
-                # Get response and rerun - FIXED ERROR HANDLING
-                try:
-                    stream = get_azure_chatbot_response(
-                        api_messages, 
-                        azure_endpoint, 
-                        azure_key, 
-                        deployment_name,
-                        api_version
-                    )
                     
-                    # Collect full response with error handling
-                    response_text = ""
-                    for chunk in stream:
-                        if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
-                            if hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
-                                if chunk.choices[0].delta.content:
-                                    response_text += chunk.choices[0].delta.content
+                    system_message = {"role": "system", "content": system_content}
                     
-                    st.session_state.chat_messages.append({"role": "assistant", "content": response_text})
-                    st.rerun()
+                    api_messages = [system_message] + [
+                        {"role": m["role"], "content": m["content"]}
+                        for m in st.session_state.chat_messages
+                    ]
                     
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-                    st.info("Please check your Azure configuration in secrets.toml")
+                    # Get response
+                    try:
+                        stream = get_azure_chatbot_response(
+                            api_messages, 
+                            azure_endpoint, 
+                            azure_key, 
+                            deployment_name,
+                            api_version
+                        )
+                        
+                        # Collect full response with error handling
+                        response_text = ""
+                        for chunk in stream:
+                            if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
+                                if hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
+                                    if chunk.choices[0].delta.content:
+                                        response_text += chunk.choices[0].delta.content
+                        
+                        # Clear thinking indicator and show response
+                        thinking_placeholder.empty()
+                        st.markdown(response_text)
+                        
+                        st.session_state.chat_messages.append({"role": "assistant", "content": response_text})
+                        
+                    except Exception as e:
+                        thinking_placeholder.empty()
+                        st.error(f"❌ Error: {str(e)}")
+                        st.info("Please check your Azure configuration in secrets.toml")
 
 if __name__ == "__main__":
     main()
