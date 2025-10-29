@@ -29,8 +29,9 @@ SCOPE = ["https://graph.microsoft.com/User.Read"]
 
 API = "https://api.ted.europa.eu/v3/notices/search"
 
-# JKM Logo URL
+# Avatars
 JKM_LOGO_URL = "https://www.xing.com/imagecache/public/scaled_original_image/eyJ1dWlkIjoiMGE2MTk2MTYtODI4Zi00MWZlLWEzN2ItMjczZGM2ODc5MGJmIiwiYXBwX2NvbnRleHQiOiJlbnRpdHktcGFnZXMiLCJtYXhfd2lkdGgiOjMyMCwibWF4X2hlaWdodCI6MzIwfQ?signature=a21e5c1393125a94fc9765898c25d73a064665dc3aacf872667c902d7ed9c3f9"
+USER_AVATAR_URL = "https://api.dicebear.com/7.x/avataaars/svg?seed=user&backgroundColor=b6e3f4"
 
 # ------------------- AUTHENTICATION -------------------
 def build_msal_app():
@@ -141,7 +142,7 @@ def auth_flow():
         st.stop()
     return True
 
-# ---------------- TED SCRAPER FUNCTIONS ----------------
+# ---------------- TED SCRAPER FUNCTIONS (unchanged) ----------------
 def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_file):
     query = (
         f"(publication-date >={date_start}<={date_end}) AND (buyer-country IN ({buyer_country})) "
@@ -516,7 +517,7 @@ def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_n
 def main():
     st.set_page_config(page_title="TED Scraper & AI Assistant", layout="wide", initial_sidebar_state="collapsed")
     
-    # ChatGPT-style Custom CSS with Fixed Bottom Input
+    # ChatGPT-style Custom CSS - FIXED VERSION
     st.markdown("""
     <style>
     /* ChatGPT-style theme */
@@ -534,7 +535,7 @@ def main():
     
     /* Main container with padding for fixed input */
     .main .block-container {
-        padding-bottom: 180px !important;
+        padding-bottom: 150px !important;
         max-width: 48rem !important;
         margin: 0 auto !important;
     }
@@ -571,44 +572,30 @@ def main():
         margin: 0 auto !important;
     }
     
-    /* Larger vertical input field */
-    [data-testid="stChatInput"] {
+    /* Input field with proper text area height */
+    [data-testid="stChatInput"] textarea {
         background-color: #40414f !important;
         color: #ececf1 !important;
         border: 1px solid #565869 !important;
         border-radius: 0.75rem !important;
-        padding: 1.25rem 3.5rem 1.25rem 3rem !important;
+        padding: 0.75rem 3rem 0.75rem 3rem !important;
         font-size: 1rem !important;
-        min-height: 70px !important;
+        min-height: 52px !important;
+        max-height: 200px !important;
         line-height: 1.5 !important;
+        resize: none !important;
     }
     
-    [data-testid="stChatInput"]:focus {
+    [data-testid="stChatInput"] textarea:focus {
         border-color: #10a37f !important;
         box-shadow: 0 0 0 1px #10a37f !important;
+        outline: none !important;
     }
     
-    /* Attach button in input field */
-    .attach-button-container {
-        position: fixed;
-        bottom: 2rem;
-        left: calc(50% - 22rem);
-        z-index: 1001;
-    }
-    
-    .attach-button-container button {
+    /* Hide default streamlit chat input styling */
+    [data-testid="stChatInput"] > div {
         background-color: transparent !important;
         border: none !important;
-        color: #8e8ea0 !important;
-        font-size: 1.5rem !important;
-        padding: 0.5rem !important;
-        cursor: pointer !important;
-        transition: color 0.2s !important;
-    }
-    
-    .attach-button-container button:hover {
-        color: #ececf1 !important;
-        background-color: transparent !important;
     }
     
     /* Text and headers */
@@ -634,7 +621,22 @@ def main():
         background-color: #1a7f64 !important;
     }
     
-    /* Avatar styling - person icon for user */
+    /* Copy button styling */
+    .copy-button {
+        background-color: transparent !important;
+        border: 1px solid #565869 !important;
+        color: #8e8ea0 !important;
+        font-size: 0.75rem !important;
+        padding: 0.25rem 0.5rem !important;
+        margin-top: 0.5rem !important;
+    }
+    
+    .copy-button:hover {
+        background-color: #40414f !important;
+        color: #ececf1 !important;
+    }
+    
+    /* Avatar styling */
     [data-testid="stChatMessage"] img {
         border-radius: 0.25rem !important;
         width: 32px !important;
@@ -861,42 +863,39 @@ def main():
                     Ich kann Ihnen helfen, Fragen zu Ihren Dokumenten zu beantworten. 
                     
                     **So funktioniert's:**
-                    - 📎 Laden Sie Dokumente in der Seitenleiste hoch (Document Library)
-                    - 📄 Oder nutzen Sie die Datei-Schaltfläche unten im Chat
+                    - 📎 Klicken Sie auf das **+** Symbol im Eingabefeld
+                    - 📚 Oder laden Sie Dokumente in der Seitenleiste hoch
                     - ❓ Stellen Sie Fragen zu den Inhalten
                     - 🔍 Ich analysiere die Dokumente und antworte präzise
                     
                     Womit kann ich Ihnen helfen?
                     """)
             
-            # Display chat history with person icon for user
-            for message in st.session_state.chat_messages:
-                avatar = JKM_LOGO_URL if message["role"] == "assistant" else "👨"
+            # Display chat history with user avatar icon and copy buttons
+            for idx, message in enumerate(st.session_state.chat_messages):
+                avatar = JKM_LOGO_URL if message["role"] == "assistant" else USER_AVATAR_URL
                 with st.chat_message(message["role"], avatar=avatar):
                     st.markdown(message["content"])
+                    # Add copy button for each message
+                    if st.button("📋 Copy", key=f"copy_{idx}", help="Copy this message"):
+                        st.write(f"``````")
+                        st.success("✅ Text displayed above - you can now copy it")
             
-            # Initialize file uploader state
-            if "chat_file_uploader_key" not in st.session_state:
-                st.session_state.chat_file_uploader_key = 0
+            # File uploader with + icon (ChatGPT style)
+            col_attach, col_space = st.columns([1, 20])
+            with col_attach:
+                if st.button("➕", key="attach_plus", help="Attach a file"):
+                    if "show_uploader" not in st.session_state:
+                        st.session_state.show_uploader = True
+                    else:
+                        st.session_state.show_uploader = not st.session_state.show_uploader
             
-            # Attach button container (positioned with CSS)
-            st.markdown('<div class="attach-button-container">', unsafe_allow_html=True)
-            
-            # Toggle for file uploader
-            if "show_file_uploader" not in st.session_state:
-                st.session_state.show_file_uploader = False
-            
-            if st.button("📎", key="attach_btn", help="Attach a file"):
-                st.session_state.show_file_uploader = not st.session_state.show_file_uploader
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-            
-            # File uploader (conditionally shown)
-            if st.session_state.show_file_uploader:
+            # Show file uploader when + is clicked
+            if st.session_state.get("show_uploader", False):
                 chat_file = st.file_uploader(
                     "Choose a file", 
                     type=['pdf', 'docx', 'txt'],
-                    key=f"chat_uploader_{st.session_state.chat_file_uploader_key}",
+                    key="chat_file_upload",
                     help="Upload a document for this conversation"
                 )
                 
@@ -908,8 +907,7 @@ def main():
                                 st.session_state.current_chat_doc = text
                                 st.session_state.current_chat_doc_name = chat_file.name
                                 st.success(f"✅ {chat_file.name} loaded")
-                                st.session_state.show_file_uploader = False
-                                st.session_state.chat_file_uploader_key += 1
+                                st.session_state.show_uploader = False
                                 st.rerun()
             
             # Chat input (fixed at bottom via CSS)
@@ -934,7 +932,7 @@ def main():
                     
                     # Add user message to chat
                     st.session_state.chat_messages.append({"role": "user", "content": prompt})
-                    with st.chat_message("user", avatar="👨"):
+                    with st.chat_message("user", avatar=USER_AVATAR_URL):
                         st.markdown(prompt)
                     
                     # Prepare messages for API
