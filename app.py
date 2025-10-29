@@ -145,7 +145,7 @@ def auth_flow():
         st.stop()
     return True
 
-# ---------------- TED SCRAPER FUNCTIONS ----------------
+# ---------------- TED SCRAPER FUNCTIONS (keeping all existing code) ----------------
 def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_file):
     query = (
         f"(publication-date >={date_start}<={date_end}) AND (buyer-country IN ({buyer_country})) "
@@ -459,7 +459,7 @@ def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
     wb.save(output_excel)
     os.remove(temp_json)
 
-# ---------------- CHATBOT FUNCTIONS WITH IMAGE & EXCEL SUPPORT ----------------
+# ---------------- CHATBOT FUNCTIONS - ADDING EXCEL & IMAGE SUPPORT ----------------
 def extract_text_from_pdf(file):
     try:
         pdf_reader = PyPDF2.PdfReader(file)
@@ -514,41 +514,27 @@ def extract_text_from_image(file):
         text += f"Format: {image.format}\n"
         text += f"Size: {image.size[0]}x{image.size[1]} pixels\n"
         text += f"Mode: {image.mode}\n\n"
-        text += "Note: For detailed image analysis, please ask specific questions about the image content."
+        text += "Note: Image uploaded. Ask questions about its content."
         
         return text
     except Exception as e:
         return f"Error reading image: {str(e)}"
 
-def encode_image_to_base64(file):
-    """Encode image to base64 for GPT-4 Vision"""
-    try:
-        image = Image.open(file)
-        buffered = BytesIO()
-        image.save(buffered, format=image.format or "PNG")
-        img_str = base64.b64encode(buffered.getvalue()).decode()
-        return img_str
-    except Exception as e:
-        return None
-
 def process_uploaded_file(uploaded_file):
     file_extension = uploaded_file.name.split('.')[-1].lower()
     
     if file_extension == 'pdf':
-        return extract_text_from_pdf(uploaded_file), "text"
+        return extract_text_from_pdf(uploaded_file)
     elif file_extension == 'docx':
-        return extract_text_from_docx(uploaded_file), "text"
+        return extract_text_from_docx(uploaded_file)
     elif file_extension == 'txt':
-        return extract_text_from_txt(uploaded_file), "text"
+        return extract_text_from_txt(uploaded_file)
     elif file_extension in ['xlsx', 'xls', 'csv']:
-        return extract_text_from_excel(uploaded_file), "text"
+        return extract_text_from_excel(uploaded_file)
     elif file_extension in ['png', 'jpg', 'jpeg']:
-        text = extract_text_from_image(uploaded_file)
-        uploaded_file.seek(0)  # Reset file pointer
-        base64_image = encode_image_to_base64(uploaded_file)
-        return text, "image", base64_image
+        return extract_text_from_image(uploaded_file)
     else:
-        return f"Unsupported file type: {file_extension}", "text"
+        return f"Unsupported file type: {file_extension}"
 
 def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_name, api_version="2024-08-01-preview"):
     client = AzureOpenAI(
@@ -832,54 +818,40 @@ def main():
             
             st.markdown("---")
             st.markdown("## 📚 Document Library")
-            st.caption("Supports: PDF, Word, TXT, Excel, Images")
+            st.caption("Optional: Upload files for context")
             
             # Initialize document store
             if "document_store" not in st.session_state:
                 st.session_state.document_store = {}
             
-            if "image_store" not in st.session_state:
-                st.session_state.image_store = {}
-            
-            # File uploader in sidebar
+            # File uploader in sidebar - ADDED EXCEL AND IMAGE TYPES
             library_files = st.file_uploader(
                 "Upload Documents", 
                 type=['pdf', 'docx', 'txt', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg'],
                 accept_multiple_files=True,
                 key="library_uploader",
-                help="Upload documents, Excel files, or images",
+                help="Upload PDFs, Word, Excel, or image files",
                 label_visibility="collapsed"
             )
             
             if library_files:
                 for uploaded_file in library_files:
-                    if uploaded_file.name not in st.session_state.document_store and uploaded_file.name not in st.session_state.image_store:
+                    if uploaded_file.name not in st.session_state.document_store:
                         with st.spinner(f"Processing {uploaded_file.name}..."):
-                            result = process_uploaded_file(uploaded_file)
-                            
-                            if len(result) == 3:  # Image file
-                                text, file_type, base64_img = result
-                                st.session_state.document_store[uploaded_file.name] = text
-                                st.session_state.image_store[uploaded_file.name] = base64_img
-                                st.success(f"🖼️ {uploaded_file.name}")
-                            else:  # Text file
-                                text, file_type = result
+                            text = process_uploaded_file(uploaded_file)
+                            if text:
                                 st.session_state.document_store[uploaded_file.name] = text
                                 st.success(f"✅ {uploaded_file.name}")
             
             if st.session_state.document_store:
-                st.markdown(f"**📁 {len(st.session_state.document_store)} file(s)**")
+                st.markdown(f"**📁 {len(st.session_state.document_store)} document(s)**")
                 for doc_name in list(st.session_state.document_store.keys()):
                     col1, col2 = st.columns([4, 1])
                     with col1:
-                        # Show different icon for images
-                        icon = "🖼️" if doc_name in st.session_state.image_store else "📄"
-                        st.caption(f"{icon} {doc_name}")
+                        st.caption(f"• {doc_name}")
                     with col2:
                         if st.button("🗑️", key=f"del_{doc_name}"):
                             del st.session_state.document_store[doc_name]
-                            if doc_name in st.session_state.image_store:
-                                del st.session_state.image_store[doc_name]
                             st.rerun()
             
             # Clear chat button
@@ -904,7 +876,7 @@ def main():
             if "chat_messages" not in st.session_state:
                 st.session_state.chat_messages = []
             
-            # Display welcome message
+            # Display welcome message - KEPT ORIGINAL
             if not st.session_state.chat_messages:
                 with st.chat_message("assistant", avatar=BOT_AVATAR_URL):
                     st.markdown("""
@@ -912,16 +884,11 @@ def main():
                     
                     Ich bin Ihr KI-Assistent und kann Ihnen bei verschiedenen Aufgaben helfen.
                     
-                    **Unterstützte Dateitypen:**
-                    - 📄 PDF, Word (DOCX), TXT
-                    - 📊 Excel (XLSX, XLS), CSV
-                    - 🖼️ Bilder (PNG, JPG, JPEG)
-                    
                     **Möglichkeiten:**
                     - 💬 Allgemeine Fragen beantworten
-                    - 📄 Dokumente und Excel-Dateien analysieren
-                    - 🖼️ Bilder beschreiben und analysieren
+                    - 📄 Dokumente analysieren (PDF, Word, TXT)
                     - 🔍 Ausschreibungen prüfen
+                    - ✍️ Texte schreiben und übersetzen
                     
                     Stellen Sie mir einfach eine Frage!
                     """)
@@ -932,30 +899,23 @@ def main():
                 with st.chat_message(message["role"], avatar=avatar):
                     st.markdown(message["content"])
             
-            # File uploader BEFORE chat input
+            # File uploader BEFORE chat input - ADDED EXCEL AND IMAGE TYPES
             st.markdown("---")
             quick_file = st.file_uploader(
-                "📎 Drag and drop file here (PDF, Word, Excel, Images) or click to browse", 
+                "📎 Drag and drop file here or click to browse", 
                 type=['pdf', 'docx', 'txt', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg'],
                 key="quick_uploader",
                 help="Upload documents, Excel files, or images"
             )
             
             if quick_file:
-                if quick_file.name not in st.session_state.document_store and quick_file.name not in st.session_state.image_store:
+                if quick_file.name not in st.session_state.document_store:
                     with st.spinner(f"Processing {quick_file.name}..."):
-                        result = process_uploaded_file(quick_file)
-                        
-                        if len(result) == 3:  # Image file
-                            text, file_type, base64_img = result
-                            st.session_state.document_store[quick_file.name] = text
-                            st.session_state.image_store[quick_file.name] = base64_img
-                            st.success(f"🖼️ {quick_file.name} added")
-                        else:  # Text file
-                            text, file_type = result
+                        text = process_uploaded_file(quick_file)
+                        if text:
                             st.session_state.document_store[quick_file.name] = text
                             st.success(f"✅ {quick_file.name} added")
-                        st.rerun()
+                            st.rerun()
             
             # Chat input
             if prompt := st.chat_input("Message JKM AI Assistant..."):
@@ -975,37 +935,19 @@ def main():
                 # Prepare system message
                 if context_parts:
                     full_context = "\n\n".join(context_parts)
-                    
-                    # Check if we have images
-                    has_images = len(st.session_state.image_store) > 0
-                    
-                    if has_images:
-                        system_content = f"""You are JKM AI Assistant - a helpful AI assistant for documents, Excel files, images, and general tasks.
+                    system_content = f"""You are JKM AI Assistant - a helpful AI assistant for tenders, procurement documents, and general tasks.
 
-You have access to the following files (including images):
+You have access to the following documents:
 
 {full_context}
 
 INSTRUCTIONS:
-- Analyze and answer questions based on the provided documents, Excel data, and images
-- For Excel files: Summarize data, identify patterns, create insights
-- For images: Describe content, identify text, analyze visual elements
-- Extract specific information, identify empty fields, requirements, deadlines
+- Analyze and answer questions based on the provided documents
+- Extract specific information, identify empty fields, requirements, deadlines, etc.
 - Always respond in German when asked in German, otherwise in English
-- Be precise, professional, and helpful"""
-                    else:
-                        system_content = f"""You are JKM AI Assistant - a helpful AI assistant for documents, Excel files, and general tasks.
-
-You have access to the following files:
-
-{full_context}
-
-INSTRUCTIONS:
-- Analyze and answer questions based on the provided documents and Excel data
-- For Excel files: Summarize data, identify patterns, create insights from tables
-- Extract specific information, identify empty fields, requirements, deadlines
-- Always respond in German when asked in German, otherwise in English
-- Be precise, professional, and helpful"""
+- Be precise, professional, and helpful
+- When analyzing PDFs: Look for specific sections, fields, tables, and requirements
+- Summarize key information clearly"""
                 else:
                     system_content = """You are JKM AI Assistant - a helpful AI assistant for general questions and tasks.
 
@@ -1013,7 +955,7 @@ INSTRUCTIONS:
 - Answer general questions helpfully and precisely
 - Always respond in German when asked in German, otherwise in English
 - Be professional and friendly
-- For file analysis: Ask the user to upload documents, Excel files, or images"""
+- For procurement/tender questions: If documents are uploaded, analyze them in detail"""
                 
                 system_message = {"role": "system", "content": system_content}
                 
@@ -1022,7 +964,7 @@ INSTRUCTIONS:
                     for m in st.session_state.chat_messages
                 ]
                 
-                # Get response and rerun
+                # Get response and rerun - FIXED ERROR HANDLING
                 try:
                     stream = get_azure_chatbot_response(
                         api_messages, 
@@ -1032,11 +974,13 @@ INSTRUCTIONS:
                         api_version
                     )
                     
-                    # Collect full response
+                    # Collect full response with error handling
                     response_text = ""
                     for chunk in stream:
-                        if chunk.choices[0].delta.content:
-                            response_text += chunk.choices[0].delta.content
+                        if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
+                            if hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
+                                if chunk.choices[0].delta.content:
+                                    response_text += chunk.choices[0].delta.content
                     
                     st.session_state.chat_messages.append({"role": "assistant", "content": response_text})
                     st.rerun()
