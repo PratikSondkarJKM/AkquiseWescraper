@@ -31,7 +31,7 @@ API = "https://api.ted.europa.eu/v3/notices/search"
 
 # Avatars
 JKM_LOGO_URL = "https://www.xing.com/imagecache/public/scaled_original_image/eyJ1dWlkIjoiMGE2MTk2MTYtODI4Zi00MWZlLWEzN2ItMjczZGM2ODc5MGJmIiwiYXBwX2NvbnRleHQiOiJlbnRpdHktcGFnZXMiLCJtYXhfd2lkdGgiOjMyMCwibWF4X2hlaWdodCI6MzIwfQ?signature=a21e5c1393125a94fc9765898c25d73a064665dc3aacf872667c902d7ed9c3f9"
-USER_AVATAR_URL = "https://api.dicebear.com/7.x/avataaars/svg?seed=user&backgroundColor=b6e3f4"
+USER_AVATAR_URL = "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix&backgroundColor=b6e3f4"
 
 # ------------------- AUTHENTICATION -------------------
 def build_msal_app():
@@ -517,7 +517,7 @@ def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_n
 def main():
     st.set_page_config(page_title="TED Scraper & AI Assistant", layout="wide", initial_sidebar_state="collapsed")
     
-    # ChatGPT-style Custom CSS - FIXED VERSION
+    # ChatGPT-style Custom CSS
     st.markdown("""
     <style>
     /* ChatGPT-style theme */
@@ -578,7 +578,7 @@ def main():
         color: #ececf1 !important;
         border: 1px solid #565869 !important;
         border-radius: 0.75rem !important;
-        padding: 0.75rem 3rem 0.75rem 3rem !important;
+        padding: 0.75rem 1rem !important;
         font-size: 1rem !important;
         min-height: 52px !important;
         max-height: 200px !important;
@@ -619,21 +619,6 @@ def main():
     
     .stButton button:hover {
         background-color: #1a7f64 !important;
-    }
-    
-    /* Copy button styling */
-    .copy-button {
-        background-color: transparent !important;
-        border: 1px solid #565869 !important;
-        color: #8e8ea0 !important;
-        font-size: 0.75rem !important;
-        padding: 0.25rem 0.5rem !important;
-        margin-top: 0.5rem !important;
-    }
-    
-    .copy-button:hover {
-        background-color: #40414f !important;
-        color: #ececf1 !important;
     }
     
     /* Avatar styling */
@@ -794,6 +779,7 @@ def main():
             
             st.markdown("---")
             st.markdown("## 📚 Document Library")
+            st.caption("📎 Upload files here - they persist during your session")
             
             # Initialize document store in session state
             if "document_store" not in st.session_state:
@@ -805,7 +791,8 @@ def main():
                 type=['pdf', 'docx', 'txt'],
                 accept_multiple_files=True,
                 key="library_uploader",
-                help="Upload PDFs, Word documents, or text files to library"
+                help="Upload PDFs, Word documents, or text files to library",
+                label_visibility="collapsed"
             )
             
             if library_files:
@@ -832,10 +819,6 @@ def main():
             st.markdown("---")
             if st.button("🗑️ Clear Chat", use_container_width=True):
                 st.session_state.chat_messages = []
-                if "current_chat_doc" in st.session_state:
-                    del st.session_state.current_chat_doc
-                if "current_chat_doc_name" in st.session_state:
-                    del st.session_state.current_chat_doc_name
                 st.rerun()
         
         # Main chat interface
@@ -863,56 +846,22 @@ def main():
                     Ich kann Ihnen helfen, Fragen zu Ihren Dokumenten zu beantworten. 
                     
                     **So funktioniert's:**
-                    - 📎 Klicken Sie auf das **+** Symbol im Eingabefeld
-                    - 📚 Oder laden Sie Dokumente in der Seitenleiste hoch
+                    - 📎 Laden Sie Dokumente in der Seitenleiste hoch (Document Library)
                     - ❓ Stellen Sie Fragen zu den Inhalten
                     - 🔍 Ich analysiere die Dokumente und antworte präzise
                     
                     Womit kann ich Ihnen helfen?
                     """)
             
-            # Display chat history with user avatar icon and copy buttons
-            for idx, message in enumerate(st.session_state.chat_messages):
+            # Display chat history with boy avatar icon
+            for message in st.session_state.chat_messages:
                 avatar = JKM_LOGO_URL if message["role"] == "assistant" else USER_AVATAR_URL
                 with st.chat_message(message["role"], avatar=avatar):
                     st.markdown(message["content"])
-                    # Add copy button for each message
-                    if st.button("📋 Copy", key=f"copy_{idx}", help="Copy this message"):
-                        st.write(f"``````")
-                        st.success("✅ Text displayed above - you can now copy it")
-            
-            # File uploader with + icon (ChatGPT style)
-            col_attach, col_space = st.columns([1, 20])
-            with col_attach:
-                if st.button("➕", key="attach_plus", help="Attach a file"):
-                    if "show_uploader" not in st.session_state:
-                        st.session_state.show_uploader = True
-                    else:
-                        st.session_state.show_uploader = not st.session_state.show_uploader
-            
-            # Show file uploader when + is clicked
-            if st.session_state.get("show_uploader", False):
-                chat_file = st.file_uploader(
-                    "Choose a file", 
-                    type=['pdf', 'docx', 'txt'],
-                    key="chat_file_upload",
-                    help="Upload a document for this conversation"
-                )
-                
-                if chat_file:
-                    if "current_chat_doc" not in st.session_state or st.session_state.get("current_chat_doc_name") != chat_file.name:
-                        with st.spinner(f"Processing {chat_file.name}..."):
-                            text = process_uploaded_file(chat_file)
-                            if text:
-                                st.session_state.current_chat_doc = text
-                                st.session_state.current_chat_doc_name = chat_file.name
-                                st.success(f"✅ {chat_file.name} loaded")
-                                st.session_state.show_uploader = False
-                                st.rerun()
             
             # Chat input (fixed at bottom via CSS)
             if prompt := st.chat_input("Message JKM AI Assistant..."):
-                # Prepare context from library and current document
+                # Prepare context from library
                 context_parts = []
                 
                 if st.session_state.document_store:
@@ -922,11 +871,8 @@ def main():
                     ])
                     context_parts.append(f"=== DOCUMENT LIBRARY ===\n{library_context}")
                 
-                if "current_chat_doc" in st.session_state:
-                    context_parts.append(f"=== CURRENT DOCUMENT ({st.session_state.current_chat_doc_name}) ===\n{st.session_state.current_chat_doc[:5000]}")
-                
                 if not context_parts:
-                    st.warning("⚠️ Bitte laden Sie mindestens ein Dokument hoch.")
+                    st.warning("⚠️ Bitte laden Sie mindestens ein Dokument in der Seitenleiste hoch.")
                 else:
                     full_context = "\n\n".join(context_parts)
                     
