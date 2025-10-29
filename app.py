@@ -7,6 +7,9 @@ import openpyxl
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from msal import ConfidentialClientApplication
+from openai import AzureOpenAI
+import PyPDF2
+import docx
 
 # ------------------- CONFIGURATION -------------------
 CLIENT_ID = st.secrets["CLIENT_ID"]
@@ -73,7 +76,7 @@ def login_button():
     st.markdown(f"""
     <div class="center-root">
         <img src="{jkm_logo_url}" class="jkm-logo" alt="JKM Consult Logo"/>
-        <div class="app-title">TED Scraper</div>
+        <div class="app-title">TED Scraper & AI Assistant</div>
         <div class="welcome-text">
             Welcome! Access project info securely.<br>
             Login with Microsoft to continue.
@@ -82,7 +85,7 @@ def login_button():
             <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" class="microsoft-logo" alt="Microsoft Logo"/>
             <h2 style="margin-bottom: 9px; font-size: 1.26em;">Sign in</h2>
             <p style="font-size: 1em; color: #232b39; margin-bottom: 9px;">
-                to continue to <b>TED Scraper</b>
+                to continue to <b>TED Scraper & AI Assistant</b>
             </p>
             <a href="{auth_url}" class="login-button">
                 Sign in with Microsoft
@@ -114,7 +117,7 @@ def auth_flow():
         st.stop()
     return True
 
-# ---------------- BUSINESS LOGIC ----------------
+# ---------------- TED SCRAPER FUNCTIONS ----------------
 def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_file):
     query = (
         f"(publication-date >={date_start}<={date_end}) AND (buyer-country IN ({buyer_country})) "
@@ -368,7 +371,7 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
             cpv_codes_set.add(node.text.strip())
     out["CPV Codes"] = ", ".join(sorted(cpv_codes_set))
 
-    # -- Extract Leistungen/Rollen (Lot Name) from ProcurementProjectLot --
+    # Extract Leistungen/Rollen
     lots = root.xpath(".//cac:ProcurementProjectLot", namespaces=ns)
     lot_names = []
     for lot in lots:
@@ -429,64 +432,330 @@ def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
     wb.save(output_excel)
     os.remove(temp_json)
 
+# ---------------- CHATBOT FUNCTIONS ----------------
+def extract_text_from_pdf(file):
+    """Extract text from PDF file"""
+    try:
+        pdf_reader = PyPDF2.PdfReader(file)
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text()
+        return text
+    except Exception as e:
+        st.error(f"Error reading PDF: {e}")
+        return None
 
-def main():
-    st.set_page_config(page_title="TED Scraper (Secure)", layout="centered")
-    auth_flow()
+def extract_text_from_docx(file):
+    """Extract text from DOCX file"""
+    try:
+        doc = docx.Document(file)
+        text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+        return text
+    except Exception as e:
+        st.error(f"Error reading DOCX: {e}")
+        return None
 
-    st.header("TED EU Notice Scraper")
-    st.write("Download TED procurement notices to Excel (data is exported as a table for Power Automate).")
-    with st.expander("ℹ️ How this works / Instructions", expanded=False):
-        st.write("""
-        1. Enter your filters (CPV, date range, country, filename).
-        2. Click **Run Scraper**. The script downloads notices and attachments, saves an Excel file.
-        3. Use the download button to save the Excel file wherever you want!
-        4. The exported file now contains an Excel table named 'TEDData', ready for Power Automate!
-        """)
+def extract_text_from_txt(file):
+    """Extract text from TXT file"""
+    try:
+        return file.read().decode('utf-8')
+    except Exception as e:
+        st.error(f"Error reading TXT: {e}")
+        return None
 
-    c1, c2 = st.columns(2)
-    with c1:
-        cpv_codes = st.text_input(
-            "🔎 CPV Codes (space separated)",
-            "71541000 71500000 71240000 79421000 71000000 71248000 71312000 71700000 71300000 71520000 71250000 90712000 71313000",
-        )
-    with c2:
-        buyer_country = st.text_input("🌍 Buyer Country (ISO Alpha-3)", "DEU")
+def process_uploaded_file(uploaded_file):
+    """Process uploaded file and extract text"""
+    file_extension = uploaded_file.name.split('.')[-1].lower()
+    
+    if file_extension == 'pdf':
+        return extract_text_from_pdf(uploaded_file)
+    elif file_extension == 'docx':
+        return extract_text_from_docx(uploaded_file)
+    elif file_extension == 'txt':
+        return extract_text_from_txt(uploaded_file)
+    else:
+        st.error(f"Unsupported file type: {file_extension}")
+        return None
 
-    today = date.today()
-    date_col1, date_col2 = st.columns(2)
-    with date_col1:
-        start_date_obj = st.date_input("📆 Start Publication Date", value=today)
-    with date_col2:
-        end_date_obj = st.date_input("📆 End Publication Date", value=today)
-
-    date_start = start_date_obj.strftime("%Y%m%d")
-    date_end = end_date_obj.strftime("%Y%m%d")
-
-    output_excel = st.text_input(
-        "💾 Output Excel filename",
-        f"ted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_name, api_version="2024-08-01-preview"):
+    """Get response from Azure OpenAI"""
+    client = AzureOpenAI(
+        azure_endpoint=azure_endpoint,
+        api_key=azure_key,
+        api_version=api_version
     )
+    
+    stream = client.chat.completions.create(
+        model=deployment_name,
+        messages=messages,
+        stream=True,
+        temperature=0.7,
+    )
+    return stream
 
-    if st.button("▶️ Run Scraper"):
-        st.info("Scraping... Please wait (can take a few minutes).")
-        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_excel:
-            try:
-                main_scraper(cpv_codes, date_start, date_end, buyer_country, temp_excel.name)
-                st.success("Done! Download your Excel file below.")
-                with open(temp_excel.name, "rb") as f:
-                    st.download_button(
-                        label="⬇️ Download Excel",
-                        data=f.read(),
-                        file_name=output_excel,
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-            except Exception as e:
-                st.error(f"Error during scraping: {e}")
-            finally:
-                temp_excel.close()
-                if os.path.exists(temp_excel.name):
-                    os.remove(temp_excel.name)
+
+# ------------------- MAIN APP -------------------
+def main():
+    st.set_page_config(page_title="TED Scraper & AI Assistant", layout="wide")
+    
+    # Authentication guard
+    auth_flow()
+    
+    # Create tabs after authentication
+    tab1, tab2 = st.tabs(["📄 TED Scraper", "💬 Document Q&A Assistant"])
+    
+    # ============= TAB 1: TED SCRAPER =============
+    with tab1:
+        st.header("📄 TED EU Notice Scraper")
+        st.write("Download TED procurement notices to Excel (data is exported as a table for Power Automate).")
+        
+        with st.expander("ℹ️ How this works / Instructions", expanded=False):
+            st.write("""
+            1. Enter your filters (CPV, date range, country, filename).
+            2. Click **Run Scraper**. The script downloads notices and attachments, saves an Excel file.
+            3. Use the download button to save the Excel file wherever you want!
+            4. The exported file now contains an Excel table named 'TEDData', ready for Power Automate!
+            """)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            cpv_codes = st.text_input(
+                "🔎 CPV Codes (space separated)",
+                "71541000 71500000 71240000 79421000 71000000 71248000 71312000 71700000 71300000 71520000 71250000 90712000 71313000",
+            )
+        with c2:
+            buyer_country = st.text_input("🌍 Buyer Country (ISO Alpha-3)", "DEU")
+
+        today = date.today()
+        date_col1, date_col2 = st.columns(2)
+        with date_col1:
+            start_date_obj = st.date_input("📆 Start Publication Date", value=today)
+        with date_col2:
+            end_date_obj = st.date_input("📆 End Publication Date", value=today)
+
+        date_start = start_date_obj.strftime("%Y%m%d")
+        date_end = end_date_obj.strftime("%Y%m%d")
+
+        output_excel = st.text_input(
+            "💾 Output Excel filename",
+            f"ted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        )
+
+        if st.button("▶️ Run Scraper"):
+            st.info("Scraping... Please wait (can take a few minutes).")
+            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_excel:
+                try:
+                    main_scraper(cpv_codes, date_start, date_end, buyer_country, temp_excel.name)
+                    st.success("✅ Done! Download your Excel file below.")
+                    with open(temp_excel.name, "rb") as f:
+                        st.download_button(
+                            label="⬇️ Download Excel",
+                            data=f.read(),
+                            file_name=output_excel,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                except Exception as e:
+                    st.error(f"❌ Error during scraping: {e}")
+                finally:
+                    temp_excel.close()
+                    if os.path.exists(temp_excel.name):
+                        os.remove(temp_excel.name)
+    
+    # ============= TAB 2: CHATBOT =============
+    with tab2:
+        st.header("💬 Document Q&A Assistant")
+        st.write("Upload documents and ask questions using Azure AI Foundry.")
+        
+        # Sidebar for Azure credentials and document library
+        with st.sidebar:
+            st.markdown("## 🔑 Azure AI Foundry Configuration")
+            
+            # Try to get from secrets first, otherwise allow manual input
+            default_endpoint = st.secrets.get("AZURE_ENDPOINT", "")
+            default_key = st.secrets.get("AZURE_API_KEY", "")
+            default_deployment = st.secrets.get("DEPLOYMENT_NAME", "gpt-4o-mini")
+            
+            azure_endpoint = st.text_input(
+                "Azure Endpoint", 
+                value=default_endpoint,
+                placeholder="https://your-resource.openai.azure.com",
+                help="Get this from Azure AI Foundry portal → Settings → Keys and Endpoints"
+            )
+            
+            azure_key = st.text_input(
+                "Azure API Key", 
+                type="password",
+                value=default_key,
+                help="Get this from Azure AI Foundry portal → Settings → Keys and Endpoints"
+            )
+            
+            deployment_name = st.text_input(
+                "Deployment Name",
+                value=default_deployment,
+                help="The name of your deployed model (e.g., gpt-4o-mini, gpt-4o)"
+            )
+            
+            api_version = st.selectbox(
+                "API Version",
+                ["2024-08-01-preview", "2024-06-01", "2024-02-15-preview"],
+                help="Azure OpenAI API version"
+            )
+            
+            st.markdown("---")
+            st.markdown("## 📚 Document Library")
+            st.markdown("Upload documents to create a persistent knowledge base.")
+            
+            # Initialize document store in session state
+            if "document_store" not in st.session_state:
+                st.session_state.document_store = {}
+            
+            library_files = st.file_uploader(
+                "Upload to Library", 
+                type=['pdf', 'docx', 'txt'],
+                accept_multiple_files=True,
+                key="library_uploader",
+                help="Upload PDFs, Word documents, or text files"
+            )
+            
+            if library_files:
+                for uploaded_file in library_files:
+                    if uploaded_file.name not in st.session_state.document_store:
+                        with st.spinner(f"Processing {uploaded_file.name}..."):
+                            text = process_uploaded_file(uploaded_file)
+                            if text:
+                                st.session_state.document_store[uploaded_file.name] = text
+                                st.success(f"✅ Added {uploaded_file.name}")
+            
+            if st.session_state.document_store:
+                st.markdown(f"**📁 Library ({len(st.session_state.document_store)} documents):**")
+                for doc_name in list(st.session_state.document_store.keys()):
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.text(f"• {doc_name}")
+                    with col2:
+                        if st.button("🗑️", key=f"del_{doc_name}"):
+                            del st.session_state.document_store[doc_name]
+                            st.rerun()
+        
+        # Main chat interface
+        if not azure_endpoint or not azure_key:
+            st.warning("⚠️ Please enter your Azure AI Foundry credentials in the sidebar to continue.")
+            st.info("""
+            ### 📋 How to get your credentials:
+            
+            1. Open **Azure AI Foundry portal** (https://ai.azure.com)
+            2. Navigate to your **Project** → **Settings** → **Keys and Endpoints**
+            3. Copy the **Endpoint URL** and **API Key**
+            4. Make sure you have a model deployed (e.g., gpt-4o-mini)
+            
+            **Or save them in your `.streamlit/secrets.toml`:**
+            ```
+            AZURE_ENDPOINT = "https://your-resource.openai.azure.com"
+            AZURE_API_KEY = "your-api-key-here"
+            DEPLOYMENT_NAME = "gpt-4o-mini"
+            ```
+            """)
+        else:
+            # Initialize chat history
+            if "chat_messages" not in st.session_state:
+                st.session_state.chat_messages = []
+            
+            # Display chat history
+            for message in st.session_state.chat_messages:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
+            
+            # File upload in chat
+            st.markdown("### 📎 Upload Document for This Conversation")
+            chat_file = st.file_uploader(
+                "Upload a document to ask questions about", 
+                type=['pdf', 'docx', 'txt'],
+                key="chat_uploader",
+                help="This document will be used only for this conversation"
+            )
+            
+            if chat_file:
+                if "current_chat_doc" not in st.session_state or st.session_state.get("current_chat_doc_name") != chat_file.name:
+                    with st.spinner(f"Processing {chat_file.name}..."):
+                        text = process_uploaded_file(chat_file)
+                        if text:
+                            st.session_state.current_chat_doc = text
+                            st.session_state.current_chat_doc_name = chat_file.name
+                            st.success(f"✅ Document loaded: {chat_file.name}")
+            
+            # Chat input
+            if prompt := st.chat_input("Ask a question about your documents..."):
+                # Prepare context from library and current document
+                context_parts = []
+                
+                if st.session_state.document_store:
+                    library_context = "\n\n".join([
+                        f"Document: {name}\n{content[:3000]}" 
+                        for name, content in st.session_state.document_store.items()
+                    ])
+                    context_parts.append(f"=== DOCUMENT LIBRARY ===\n{library_context}")
+                
+                if "current_chat_doc" in st.session_state:
+                    context_parts.append(f"=== CURRENT DOCUMENT ({st.session_state.current_chat_doc_name}) ===\n{st.session_state.current_chat_doc[:5000]}")
+                
+                if not context_parts:
+                    st.warning("⚠️ Please upload at least one document to ask questions.")
+                else:
+                    full_context = "\n\n".join(context_parts)
+                    
+                    # Add user message to chat
+                    st.session_state.chat_messages.append({"role": "user", "content": prompt})
+                    with st.chat_message("user"):
+                        st.markdown(prompt)
+                    
+                    # Prepare messages for API
+                    system_message = {
+                        "role": "system",
+                        "content": f"""You are a helpful AI assistant that answers questions based on provided documents. 
+
+Here are the documents:
+
+{full_context}
+
+Instructions:
+- Answer questions based ONLY on the information in these documents
+- If the answer is not in the documents, clearly state that
+- Always respond in German if the user asks in German, otherwise respond in English
+- Be precise and cite specific parts of the documents when possible
+- For procurement/tender documents, highlight key dates, requirements, and important details"""
+                    }
+                    
+                    api_messages = [system_message] + [
+                        {"role": m["role"], "content": m["content"]}
+                        for m in st.session_state.chat_messages
+                    ]
+                    
+                    # Get and display response
+                    with st.chat_message("assistant"):
+                        try:
+                            stream = get_azure_chatbot_response(
+                                api_messages, 
+                                azure_endpoint, 
+                                azure_key, 
+                                deployment_name,
+                                api_version
+                            )
+                            response = st.write_stream(stream)
+                            st.session_state.chat_messages.append({"role": "assistant", "content": response})
+                        except Exception as e:
+                            st.error(f"❌ Error: {str(e)}")
+                            st.info("Please check your Azure credentials and deployment name. Make sure the model is deployed in your Azure AI Foundry project.")
+            
+            # Clear chat button
+            col1, col2 = st.columns([6, 1])
+            with col2:
+                if st.button("🗑️ Clear Chat"):
+                    st.session_state.chat_messages = []
+                    if "current_chat_doc" in st.session_state:
+                        del st.session_state.current_chat_doc
+                    if "current_chat_doc_name" in st.session_state:
+                        del st.session_state.current_chat_doc_name
+                    st.rerun()
 
 if __name__ == "__main__":
     main()
