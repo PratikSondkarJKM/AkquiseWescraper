@@ -29,6 +29,9 @@ SCOPE = ["https://graph.microsoft.com/User.Read"]
 
 API = "https://api.ted.europa.eu/v3/notices/search"
 
+# JKM Logo URL
+JKM_LOGO_URL = "https://www.xing.com/imagecache/public/scaled_original_image/eyJ1dWlkIjoiMGE2MTk2MTYtODI4Zi00MWZlLWEzN2ItMjczZGM2ODc5MGJmIiwiYXBwX2NvbnRleHQiOiJlbnRpdHktcGFnZXMiLCJtYXhfd2lkdGgiOjMyMCwibWF4X2hlaWdodCI6MzIwfQ?signature=a21e5c1393125a94fc9765898c25d73a064665dc3aacf872667c902d7ed9c3f9"
+
 # ------------------- AUTHENTICATION -------------------
 def build_msal_app():
     if not CLIENT_ID or not CLIENT_SECRET or not TENANT_ID:
@@ -56,7 +59,6 @@ def fetch_token(auth_code):
     return msal_app.acquire_token_by_authorization_code(auth_code, scopes=SCOPE, redirect_uri=REDIRECT_URI)
 
 def login_button():
-    jkm_logo_url = "https://www.xing.com/imagecache/public/scaled_original_image/eyJ1dWlkIjoiMGE2MTk2MTYtODI4Zi00MWZlLWEzN2ItMjczZGM2ODc5MGJmIiwiYXBwX2NvbnRleHQiOiJlbnRpdHktcGFnZXMiLCJtYXhfd2lkdGgiOjMyMCwibWF4X2hlaWdodCI6MzIwfQ?signature=a21e5c1393125a94fc9765898c25d73a064665dc3aacf872667c902d7ed9c3f9"
     msal_app = build_msal_app()
     auth_url = msal_app.get_authorization_request_url(SCOPE, redirect_uri=REDIRECT_URI)
     st.markdown("""
@@ -97,7 +99,7 @@ def login_button():
     """, unsafe_allow_html=True)
     st.markdown(f"""
     <div class="center-root">
-        <img src="{jkm_logo_url}" class="jkm-logo" alt="JKM Consult Logo"/>
+        <img src="{JKM_LOGO_URL}" class="jkm-logo" alt="JKM Consult Logo"/>
         <div class="app-title">TED Scraper & AI Assistant</div>
         <div class="welcome-text">
             Welcome! Access project info securely.<br>
@@ -512,13 +514,178 @@ def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_n
 
 # ------------------- MAIN APP -------------------
 def main():
-    st.set_page_config(page_title="TED Scraper & AI Assistant", layout="wide")
+    st.set_page_config(page_title="TED Scraper & AI Assistant", layout="wide", initial_sidebar_state="collapsed")
+    
+    # ChatGPT-style Custom CSS
+    st.markdown("""
+    <style>
+    /* ChatGPT-style theme */
+    [data-testid="stAppViewContainer"] {
+        background-color: #343541;
+    }
+    
+    [data-testid="stHeader"] {
+        background-color: #343541;
+    }
+    
+    [data-testid="stSidebar"] {
+        background-color: #202123;
+    }
+    
+    /* Chat message styling */
+    .stChatMessage {
+        background-color: transparent !important;
+        padding: 1.5rem 0 !important;
+    }
+    
+    [data-testid="stChatMessageContent"] {
+        background-color: #444654 !important;
+        border-radius: 0.5rem;
+        padding: 1rem 1.5rem !important;
+        color: #ececf1 !important;
+    }
+    
+    /* User message - darker background */
+    [data-testid="stChatMessage"][data-testid*="user"] [data-testid="stChatMessageContent"] {
+        background-color: #343541 !important;
+    }
+    
+    /* Input area styling */
+    .stChatInputContainer {
+        background-color: #40414f !important;
+        border-radius: 0.75rem !important;
+        border: 1px solid #565869 !important;
+        padding: 0.75rem !important;
+    }
+    
+    [data-testid="stChatInput"] {
+        background-color: transparent !important;
+        color: #ececf1 !important;
+        border: none !important;
+    }
+    
+    /* Text and headers */
+    .stMarkdown, .stText {
+        color: #ececf1 !important;
+    }
+    
+    h1, h2, h3, h4, h5, h6 {
+        color: #ececf1 !important;
+    }
+    
+    /* Buttons */
+    .stButton button {
+        background-color: #10a37f !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 0.375rem !important;
+        padding: 0.5rem 1rem !important;
+        font-weight: 500 !important;
+    }
+    
+    .stButton button:hover {
+        background-color: #1a7f64 !important;
+    }
+    
+    /* Avatar styling */
+    [data-testid="stChatMessage"] img {
+        border-radius: 0.25rem !important;
+        width: 30px !important;
+        height: 30px !important;
+    }
+    
+    /* File uploader */
+    [data-testid="stFileUploader"] {
+        background-color: #40414f !important;
+        border: 1px dashed #565869 !important;
+        border-radius: 0.5rem !important;
+        padding: 1rem !important;
+    }
+    
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2rem;
+        background-color: #343541;
+        border-bottom: 1px solid #565869;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        color: #ececf1 !important;
+        background-color: transparent;
+        border-bottom: 2px solid transparent;
+        padding: 1rem 0;
+        font-weight: 500;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        border-bottom-color: #10a37f !important;
+        color: #10a37f !important;
+    }
+    
+    /* Success/Info/Warning boxes */
+    .stSuccess, .stInfo, .stWarning {
+        background-color: #444654 !important;
+        color: #ececf1 !important;
+        border-radius: 0.5rem !important;
+    }
+    
+    /* Expander */
+    .streamlit-expanderHeader {
+        background-color: #444654 !important;
+        color: #ececf1 !important;
+        border-radius: 0.5rem !important;
+    }
+    
+    /* Input fields */
+    .stTextInput input, .stDateInput input, .stSelectbox select {
+        background-color: #40414f !important;
+        color: #ececf1 !important;
+        border: 1px solid #565869 !important;
+        border-radius: 0.375rem !important;
+    }
+    
+    /* Labels */
+    label {
+        color: #ececf1 !important;
+    }
+    
+    /* Download button */
+    .stDownloadButton button {
+        background-color: #10a37f !important;
+        color: white !important;
+    }
+    
+    /* Custom file upload button */
+    .upload-btn-wrapper {
+        position: relative;
+        display: inline-block;
+        margin-bottom: 0.5rem;
+    }
+    
+    .upload-btn {
+        background-color: transparent;
+        color: #8e8ea0;
+        padding: 0.5rem;
+        border-radius: 0.375rem;
+        cursor: pointer;
+        border: 1px solid #565869;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.875rem;
+    }
+    
+    .upload-btn:hover {
+        background-color: #40414f;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     
     # Authentication guard
     auth_flow()
     
     # Create tabs after authentication
-    tab1, tab2 = st.tabs(["📄 TED Scraper", "💬 Document Q&A Assistant"])
+    tab1, tab2 = st.tabs(["📄 TED Scraper", "💬 AI Assistant"])
     
     # ============= TAB 1: TED SCRAPER =============
     with tab1:
@@ -579,9 +746,6 @@ def main():
     
     # ============= TAB 2: CHATBOT =============
     with tab2:
-        st.header("💬 Document Q&A Assistant")
-        st.write("Upload documents and ask questions using Azure AI Foundry.")
-        
         # Sidebar for document library
         with st.sidebar:
             # Get Azure credentials from secrets (auto-load)
@@ -591,37 +755,27 @@ def main():
             api_version = "2024-08-01-preview"
             
             # Show configuration status
-            st.markdown("## 🔑 Azure AI Configuration")
+            st.markdown("## 🔑 Configuration")
             if azure_endpoint and azure_key:
-                st.success("✅ Azure credentials loaded from secrets")
-                # Show masked endpoint for confirmation
+                st.success("✅ Azure AI Connected")
                 try:
                     masked_endpoint = azure_endpoint.replace("https://", "").split(".")[0]
-                    st.info(f"🔗 Resource: **{masked_endpoint}**")
+                    st.info(f"🔗 {masked_endpoint}")
                 except:
                     st.info("🔗 Endpoint configured")
-                st.info(f"🤖 Model: **{deployment_name}**")
+                st.info(f"🤖 {deployment_name}")
             else:
-                st.warning("⚠️ Azure credentials not found in secrets")
-                st.markdown("""
-                **Add to `.streamlit/secrets.toml`:**
-                ```
-                AZURE_ENDPOINT = "https://your-resource.openai.azure.com"
-                AZURE_API_KEY = "your-api-key"
-                DEPLOYMENT_NAME = "gpt-4o-mini"
-                ```
-                """)
+                st.warning("⚠️ Azure credentials missing")
             
             st.markdown("---")
             st.markdown("## 📚 Document Library")
-            st.markdown("Upload documents to create a persistent knowledge base.")
             
             # Initialize document store in session state
             if "document_store" not in st.session_state:
                 st.session_state.document_store = {}
             
             library_files = st.file_uploader(
-                "Upload to Library", 
+                "Upload Documents", 
                 type=['pdf', 'docx', 'txt'],
                 accept_multiple_files=True,
                 key="library_uploader",
@@ -635,57 +789,77 @@ def main():
                             text = process_uploaded_file(uploaded_file)
                             if text:
                                 st.session_state.document_store[uploaded_file.name] = text
-                                st.success(f"✅ Added {uploaded_file.name}")
+                                st.success(f"✅ {uploaded_file.name}")
             
             if st.session_state.document_store:
-                st.markdown(f"**📁 Library ({len(st.session_state.document_store)} documents):**")
+                st.markdown(f"**📁 {len(st.session_state.document_store)} document(s)**")
                 for doc_name in list(st.session_state.document_store.keys()):
-                    col1, col2 = st.columns([3, 1])
+                    col1, col2 = st.columns([4, 1])
                     with col1:
-                        st.text(f"• {doc_name}")
+                        st.caption(f"• {doc_name}")
                     with col2:
                         if st.button("🗑️", key=f"del_{doc_name}"):
                             del st.session_state.document_store[doc_name]
                             st.rerun()
+            
+            # Clear chat button in sidebar
+            st.markdown("---")
+            if st.button("🗑️ Clear Chat", use_container_width=True):
+                st.session_state.chat_messages = []
+                if "current_chat_doc" in st.session_state:
+                    del st.session_state.current_chat_doc
+                if "current_chat_doc_name" in st.session_state:
+                    del st.session_state.current_chat_doc_name
+                st.rerun()
         
         # Main chat interface
         if not azure_endpoint or not azure_key:
-            st.error("❌ Azure AI Foundry credentials not configured in secrets!")
+            st.error("❌ Azure AI Foundry credentials not configured!")
             st.info("""
-            ### 📋 Add credentials to your secrets:
-            
-            **Create/Update `.streamlit/secrets.toml`:**
+            **Add to `.streamlit/secrets.toml`:**
             ```
-            # Azure AI Foundry Configuration
-            AZURE_ENDPOINT = "https://jkm-ai.cognitiveservices.azure.com/openai/deployments/gpt-4o-mini/chat/completions?api-version=2024-08-01-preview"
-            AZURE_API_KEY = "your-api-key-from-azure"
+            AZURE_ENDPOINT = "https://your-resource.openai.azure.com"
+            AZURE_API_KEY = "your-api-key"
             DEPLOYMENT_NAME = "gpt-4o-mini"
             ```
-            
-            **Get your credentials:**
-            1. Open Azure AI Foundry portal (https://ai.azure.com)
-            2. Go to your project → Settings → Keys and Endpoints
-            3. Copy the **Endpoint** and **API Key**
-            4. Make sure you have deployed a model (e.g., gpt-4o-mini)
             """)
         else:
             # Initialize chat history
             if "chat_messages" not in st.session_state:
                 st.session_state.chat_messages = []
             
+            # Display welcome message if no chat history
+            if not st.session_state.chat_messages:
+                with st.chat_message("assistant", avatar=JKM_LOGO_URL):
+                    st.markdown("""
+                    👋 **Willkommen beim JKM AI Assistant!**
+                    
+                    Ich kann Ihnen helfen, Fragen zu Ihren Dokumenten zu beantworten. 
+                    
+                    **So funktioniert's:**
+                    - 📎 Laden Sie Dokumente in der Seitenleiste hoch
+                    - ❓ Stellen Sie Fragen zu den Inhalten
+                    - 🔍 Ich analysiere die Dokumente und antworte präzise
+                    
+                    Womit kann ich Ihnen helfen?
+                    """)
+            
             # Display chat history
             for message in st.session_state.chat_messages:
-                with st.chat_message(message["role"]):
+                avatar = JKM_LOGO_URL if message["role"] == "assistant" else "👤"
+                with st.chat_message(message["role"], avatar=avatar):
                     st.markdown(message["content"])
             
-            # File upload in chat
-            st.markdown("### 📎 Upload Document for This Conversation")
-            chat_file = st.file_uploader(
-                "Upload a document to ask questions about", 
-                type=['pdf', 'docx', 'txt'],
-                key="chat_uploader",
-                help="This document will be used only for this conversation"
-            )
+            # File upload in chat (inline with input)
+            col1, col2 = st.columns([8, 1])
+            with col1:
+                chat_file = st.file_uploader(
+                    "📎 Attach file", 
+                    type=['pdf', 'docx', 'txt'],
+                    key="chat_uploader",
+                    help="Upload a document for this conversation",
+                    label_visibility="collapsed"
+                )
             
             if chat_file:
                 if "current_chat_doc" not in st.session_state or st.session_state.get("current_chat_doc_name") != chat_file.name:
@@ -694,10 +868,10 @@ def main():
                         if text:
                             st.session_state.current_chat_doc = text
                             st.session_state.current_chat_doc_name = chat_file.name
-                            st.success(f"✅ Document loaded: {chat_file.name}")
+                            st.success(f"✅ {chat_file.name} loaded")
             
             # Chat input
-            if prompt := st.chat_input("Ask a question about your documents..."):
+            if prompt := st.chat_input("Message JKM AI Assistant..."):
                 # Prepare context from library and current document
                 context_parts = []
                 
@@ -712,30 +886,31 @@ def main():
                     context_parts.append(f"=== CURRENT DOCUMENT ({st.session_state.current_chat_doc_name}) ===\n{st.session_state.current_chat_doc[:5000]}")
                 
                 if not context_parts:
-                    st.warning("⚠️ Please upload at least one document to ask questions.")
+                    st.warning("⚠️ Bitte laden Sie mindestens ein Dokument hoch.")
                 else:
                     full_context = "\n\n".join(context_parts)
                     
                     # Add user message to chat
                     st.session_state.chat_messages.append({"role": "user", "content": prompt})
-                    with st.chat_message("user"):
+                    with st.chat_message("user", avatar="👤"):
                         st.markdown(prompt)
                     
                     # Prepare messages for API
                     system_message = {
                         "role": "system",
-                        "content": f"""You are a helpful AI assistant that answers questions based on provided documents. 
+                        "content": f"""Du bist der JKM AI Assistant - ein hilfreicher KI-Assistent für Ausschreibungen und Projektdokumente.
 
-Here are the documents:
+Hier sind die verfügbaren Dokumente:
 
 {full_context}
 
-Instructions:
-- Answer questions based ONLY on the information in these documents
-- If the answer is not in the documents, clearly state that
-- Always respond in German if the user asks in German, otherwise respond in English
-- Be precise and cite specific parts of the documents when possible
-- For procurement/tender documents, highlight key dates, requirements, and important details"""
+Anweisungen:
+- Beantworte Fragen NUR basierend auf den bereitgestellten Dokumenten
+- Falls die Antwort nicht in den Dokumenten steht, sage das klar
+- Antworte immer auf Deutsch, wenn auf Deutsch gefragt wird
+- Sei präzise und zitiere spezifische Teile der Dokumente
+- Bei Ausschreibungsdokumenten: Hebe wichtige Termine, Anforderungen und Details hervor
+- Sei professionell und hilfsbereit"""
                     }
                     
                     api_messages = [system_message] + [
@@ -744,7 +919,7 @@ Instructions:
                     ]
                     
                     # Get and display response
-                    with st.chat_message("assistant"):
+                    with st.chat_message("assistant", avatar=JKM_LOGO_URL):
                         try:
                             stream = get_azure_chatbot_response(
                                 api_messages, 
@@ -757,18 +932,7 @@ Instructions:
                             st.session_state.chat_messages.append({"role": "assistant", "content": response})
                         except Exception as e:
                             st.error(f"❌ Error: {str(e)}")
-                            st.info("Please check your Azure credentials in secrets.toml. Make sure the endpoint URL and API key are correct.")
-            
-            # Clear chat button
-            col1, col2 = st.columns([6, 1])
-            with col2:
-                if st.button("🗑️ Clear Chat"):
-                    st.session_state.chat_messages = []
-                    if "current_chat_doc" in st.session_state:
-                        del st.session_state.current_chat_doc
-                    if "current_chat_doc_name" in st.session_state:
-                        del st.session_state.current_chat_doc_name
-                    st.rerun()
+                            st.info("Bitte überprüfen Sie Ihre Azure-Konfiguration in secrets.toml")
 
 if __name__ == "__main__":
     main()
