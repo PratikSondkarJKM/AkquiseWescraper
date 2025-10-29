@@ -29,7 +29,7 @@ SCOPE = ["https://graph.microsoft.com/User.Read"]
 
 API = "https://api.ted.europa.eu/v3/notices/search"
 
-# Avatars - Bot icon and user icon
+# Avatars
 BOT_AVATAR_URL = "https://api.dicebear.com/7.x/bottts/svg?seed=JKM&backgroundColor=10a37f"
 USER_AVATAR_URL = "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix&backgroundColor=b6e3f4"
 
@@ -142,8 +142,319 @@ def auth_flow():
         st.stop()
     return True
 
-# ---------------- TED SCRAPER FUNCTIONS (keeping existing code) ----------------
-[Previous TED scraper functions remain the same - fetch_all_notices_to_json, parse_xml_fields, etc.]
+# ---------------- TED SCRAPER FUNCTIONS ----------------
+def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_file):
+    query = (
+        f"(publication-date >={date_start}<={date_end}) AND (buyer-country IN ({buyer_country})) "
+        f"AND (classification-cpv IN ({cpv_codes})) AND (notice-type IN (pin-cfc-standard pin-cfc-social qu-sy cn-standard cn-social subco cn-desg))"
+    )
+    payload = {
+        "query": query,
+        "fields": ["publication-number", "links"],
+        "scope": "ACTIVE",
+        "checkQuerySyntax": False,
+        "paginationMode": "PAGE_NUMBER",
+        "page": 1,
+        "limit": 100
+    }
+    s = requests.Session()
+    s.headers.update({"Accept": "application/json"})
+    all_notices = []
+    page = 1
+    while True:
+        body = dict(payload)
+        body["page"] = page
+        r = s.post(API, json=body, timeout=60)
+        r.raise_for_status()
+        data = r.json()
+        notices = data.get("results") or data.get("items") or data.get("notices") or []
+        if not notices:
+            break
+        all_notices.extend(notices)
+        total = data.get("total") or data.get("totalCount")
+        if not notices or (total and page * payload["limit"] >= total):
+            break
+        page += 1
+        time.sleep(0.2)
+    with open(json_file, "w", encoding="utf-8") as f:
+        json.dump({"notices": all_notices}, f, ensure_ascii=False, indent=2)
+
+def _get_links_block(notice: dict) -> dict:
+    links = notice.get("links") or {}
+    if isinstance(links, dict) and "links" in links and isinstance(links["links"], dict):
+        links = links["links"]
+    if isinstance(links, dict):
+        return { (k.lower() if isinstance(k,str) else k): v for k,v in links.items() }
+    return {}
+
+def _extract_xml_urls_from_notice(notice: dict) -> list:
+    block = _get_links_block(notice)
+    xml_block = block.get("xml")
+    urls = []
+    if isinstance(xml_block, dict):
+        for k,v in xml_block.items():
+            if isinstance(k,str) and k.lower()=="mul" and v:
+                urls.append(v)
+        for k,v in xml_block.items():
+            if isinstance(k,str) and k.lower()!="mul" and v:
+                urls.append(v)
+    elif isinstance(xml_block, str) and xml_block:
+        urls.append(xml_block)
+    return urls
+
+def fetch_notice_xml(session: requests.Session, pubno: str, notice: dict) -> bytes:
+    xml_headers = {"Accept":"application/xml","User-Agent":"Mozilla/5.0"}
+    for url in _extract_xml_urls_from_notice(notice):
+        try:
+            r = session.get(url, headers=xml_headers, timeout=60)
+            if r.status_code == 200 and r.content.strip():
+                return r.content
+        except requests.RequestException:
+            pass
+    for lang in ("en","de","fr"):
+        url = f"https://ted.europa.eu/{lang}/notice/{pubno}/xml"
+        try:
+            r = session.get(url, headers=xml_headers, timeout=60)
+            if r.status_code == 200 and r.content.strip():
+                return r.content
+        except requests.RequestException:
+            pass
+    detail_url = f"https://ted.europa.eu/en/notice/-/detail/{pubno}"
+    try:
+        html = session.get(detail_url, headers={"User-Agent":"Mozilla/5.0"}, timeout=60).text
+        m = re.search(r'https://ted\.europa\.eu/(?:en|de|fr)/notice/' + re.escape(pubno) + r'/xml', html)
+        if m:
+            r = session.get(m.group(0), headers=xml_headers, timeout=60)
+            if r.status_code == 200 and r.content.strip():
+                return r.content
+    except requests.RequestException:
+        pass
+    raise RuntimeError(f"No XML found for {pubno}")
+
+def _first_text(nodes):
+    for n in nodes or []:
+        t = (n.text or "").strip()
+        if t:
+            return t
+    return ""
+
+def _norm_date(d: str) -> str:
+    if not d:
+        return ""
+    d = d.rstrip("Zz")
+    return d.split("T")[0].split("+")[0]
+
+def _clean_title(raw: str) -> str:
+    if not raw: return ""
+    return re.sub(r"^\s*\d{4}[-_]\d{5,}[\s_\-–:]+", "", raw.strip())
+
+def _parse_iso_date(d: str):
+    try:
+        return datetime.strptime(d, "%Y-%m-%d")
+    except Exception:
+        return None
+
+def _duration_to_days(val: str, unit: str) -> int or None:
+    if not val:
+        return None
+    try:
+        num = float(str(val).strip().replace(",", "."))
+    except Exception:
+        return None
+    u = (unit or "").upper()
+    if u in ("DAY","D","DAYS"):
+        return int(round(num))
+    if u in ("MON","M","MONTH","MONTHS"):
+        return int(round(num * 30))
+    if u in ("ANN","Y","YEAR","YEARS"):
+        return int(round(num * 365))
+    return None
+
+def parse_xml_fields(xml_bytes: bytes) -> dict:
+    parser = etree.XMLParser(recover=True, huge_tree=True)
+    root = etree.parse(BytesIO(xml_bytes), parser)
+    ns = {k: v for k, v in (root.getroot().nsmap or {}).items() if k}
+    ns.setdefault("cbc","urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2")
+    ns.setdefault("cac","urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2")
+    ns.setdefault("efac","http://data.europa.eu/p27/eforms-ubl-extension-aggregate-components/1")
+    ns.setdefault("efbc","http://data.europa.eu/p27/eforms-ubl-extension-basic-components/1")
+
+    out = {}
+    out["Beschaffer"] = _first_text(
+        root.xpath(".//cac:ContractingParty//cac:PartyName/cbc:Name", namespaces=ns)
+        or root.xpath(".//efac:Organizations//efac:Company/cac:PartyName/cbc:Name", namespaces=ns)
+    )
+    out["Projektbezeichnung"] = _clean_title(
+        _first_text(root.xpath(".//cac:ProcurementProject/cbc:Name | .//cbc:Title | .//efbc:Title", namespaces=ns))
+    )
+    out["Ort/Region"] = _first_text(root.xpath("//cac:PostalAddress[1]/cbc:CityName", namespaces=ns))
+    out["Vergabeplattform"] = _first_text(
+        root.xpath(".//cbc:AccessToolsURI | .//cbc:WebsiteURI | .//cbc:URI | .//cbc:EndpointID", namespaces=ns)
+    )
+    pub_id = _first_text(root.xpath(".//efbc:NoticePublicationID[@schemeName='ojs-notice-id']", namespaces=ns))
+    out["Ted-Link"] = f"https://ted.europa.eu/en/notice/-/detail/{pub_id}" if pub_id else ""
+
+    start_nodes = root.xpath(
+        ".//cac:ProcurementProject/cac:PlannedPeriod/cbc:StartDate "
+        "| .//cac:ProcurementProjectLot//cac:ProcurementProject/cac:PlannedPeriod/cbc:StartDate",
+        namespaces=ns
+    )
+    end_nodes = root.xpath(
+        ".//cac:ProcurementProject/cac:PlannedPeriod/cbc:EndDate "
+        "| .//cac:ProcurementProjectLot//cac:ProcurementProject/cac:PlannedPeriod/cbc:EndDate",
+        namespaces=ns
+    )
+    start_norm = _norm_date(_first_text(start_nodes))
+    end_norm = _norm_date(_first_text(end_nodes))
+
+    if not start_norm and end_norm:
+        dur_nodes = root.xpath(
+            ".//cac:ProcurementProject/cac:PlannedPeriod/cbc:DurationMeasure "
+            "| .//cac:ProcurementProjectLot//cac:ProcurementProject/cac:PlannedPeriod/cbc:DurationMeasure",
+            namespaces=ns
+        )
+        dur_val, dur_unit = None, None
+        for dn in dur_nodes:
+            text_val = (dn.text or "").strip()
+            unit = (dn.get("unitCode") or "").strip()
+            if text_val:
+                dur_val, dur_unit = text_val, unit
+                break
+        days = _duration_to_days(dur_val, dur_unit) if dur_val else None
+        if days:
+            end_dt = _parse_iso_date(end_norm)
+            if end_dt:
+                start_norm = (end_dt - timedelta(days=days)).strftime("%Y-%m-%d")
+
+    out["Projektstart"] = start_norm
+    out["Projektende"] = end_norm
+
+    crit_nodes = root.xpath(
+        ".//*[contains(local-name(),'SelectionCriteria') or contains(local-name(),'SelectionCriterion')]/cbc:Description",
+        namespaces=ns
+    )
+    crit_text = " ".join((n.text or "").strip() for n in crit_nodes if (n.text or "").strip())
+    crit_text = re.sub(r"\bslc-[a-z0-9\-]+\b", "", crit_text, flags=re.I).strip()
+    out["Geforderte Unternehmensreferenzen"] = crit_text
+    out["Geforderte Kriterien CVs"] = "CV" if re.search(
+        r"\b(CV|Lebenslauf|Schlüsselpersonal|key staff|personaleinsatz)\b", crit_text, re.I
+    ) else ""
+
+    amount_nodes = root.xpath(
+        ".//cbc:EstimatedOverallContractAmount | .//cbc:EstimatedOverallContractAmount/cbc:Value | .//efbc:EstimatedValue | .//cbc:PayableAmount",
+        namespaces=ns
+    )
+    value_text = ""
+    if amount_nodes:
+        for node in amount_nodes:
+            if node.text and node.text.strip():
+                value_text = node.text.strip()
+                parent = node.getparent()
+                currency = node.get("currencyID") or (parent.get("currencyID") if parent is not None else None)
+                if currency:
+                    value_text += f" {currency}"
+                break
+    out["Projektvolumen"] = value_text or ""
+
+    tender_deadline_date = _norm_date(
+        _first_text(root.xpath(".//cac:TenderSubmissionDeadlinePeriod/cbc:EndDate", namespaces=ns))
+    )
+    if not tender_deadline_date:
+        tender_deadline_date = _norm_date(
+            _first_text(root.xpath(".//cac:TenderingTerms/cbc:SubmissionDeadlineDate", namespaces=ns))
+        )
+    if not tender_deadline_date:
+        tender_deadline_date = _norm_date(
+            _first_text(root.xpath(".//cac:InterestExpressionReceptionPeriod/cbc:EndDate", namespaces=ns))
+        )
+    if not tender_deadline_date:
+        tender_deadline_date = _norm_date(
+            _first_text(root.xpath(".//efac:InterestExpressionReceptionPeriod/cbc:EndDate", namespaces=ns))
+        )
+    participation_deadline_date = _norm_date(
+        _first_text(root.xpath(".//cac:ParticipationRequestReceptionPeriod/cbc:EndDate", namespaces=ns))
+    )
+    if not participation_deadline_date:
+        participation_deadline_date = _norm_date(
+            _first_text(root.xpath(".//efac:ParticipationRequestReceptionPeriod/cbc:EndDate", namespaces=ns))
+        )
+    out["Frist Abgabedatum"] = tender_deadline_date or participation_deadline_date
+
+    pub_date = _first_text(root.xpath(".//efbc:PublicationDate", namespaces=ns))
+    if not pub_date:
+        pub_date = _first_text(root.xpath(".//cbc:PublicationDate", namespaces=ns))
+    out["Veröffentlichung Datum"] = _norm_date(pub_date)
+
+    cpv_codes_set = set()
+    main_cpv_nodes = root.xpath(".//cac:MainCommodityClassification/cbc:ItemClassificationCode", namespaces=ns)
+    for node in main_cpv_nodes:
+        if node.text:
+            cpv_codes_set.add(node.text.strip())
+    add_cpv_nodes = root.xpath(".//cac:AdditionalCommodityClassification/cbc:ItemClassificationCode", namespaces=ns)
+    for node in add_cpv_nodes:
+        if node.text:
+            cpv_codes_set.add(node.text.strip())
+    out["CPV Codes"] = ", ".join(sorted(cpv_codes_set))
+
+    lots = root.xpath(".//cac:ProcurementProjectLot", namespaces=ns)
+    lot_names = []
+    for lot in lots:
+        lot_name = lot.xpath(".//cac:ProcurementProject/cbc:Name", namespaces=ns)
+        if lot_name and len(lot_name) > 0:
+            text = lot_name[0].text.strip()
+            if text:
+                lot_names.append(text)
+    out["Leistungen/Rollen"] = "; ".join(lot_names)
+
+    return out
+
+def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
+    temp_json = tempfile.mktemp(suffix=".json")
+    fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, temp_json)
+    with open(temp_json, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    notices = data.get("results") or data.get("items") or data.get("notices") or []
+    s = requests.Session()
+    rows = []
+    for n in notices:
+        pubno = n.get("publication-number")
+        if not pubno:
+            continue
+        try:
+            xml_bytes = fetch_notice_xml(s, pubno, n)
+            fields = parse_xml_fields(xml_bytes)
+            fields["publication-number"] = pubno
+            fields.setdefault("Ted-Link", f"https://ted.europa.eu/en/notice/-/detail/{pubno}")
+            rows.append(fields)
+        except Exception as e:
+            print(f"ERR {pubno}: {e}")
+        time.sleep(0.25)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    headers = [
+        "publication-number","Beschaffer","Projektbezeichnung","Ort/Region",
+        "Vergabeplattform","Ted-Link","Projektstart","Projektende",
+        "Geforderte Unternehmensreferenzen","Geforderte Kriterien CVs",
+        "Projektvolumen", "Frist Abgabedatum", "Veröffentlichung Datum", "CPV Codes", "Leistungen/Rollen"
+    ]
+    ws.append(headers)
+    for r in rows:
+        ws.append([r.get(h, "") for h in headers])
+    last_row = len(rows) + 1
+    last_col = len(headers)
+    table_range = f"A1:{get_column_letter(last_col)}{last_row}"
+    table = Table(displayName="Teddata", ref=table_range)
+    style = TableStyleInfo(
+        name="TableStyleMedium9",
+        showFirstColumn=False,
+        showLastColumn=False,
+        showRowStripes=True,
+        showColumnStripes=False,
+    )
+    table.tableStyleInfo = style
+    ws.add_table(table)
+    wb.save(output_excel)
+    os.remove(temp_json)
 
 # ---------------- CHATBOT FUNCTIONS ----------------
 def extract_text_from_pdf(file):
@@ -203,7 +514,7 @@ def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_n
 def main():
     st.set_page_config(page_title="TED Scraper & AI Assistant", layout="wide", initial_sidebar_state="collapsed")
     
-    # ChatGPT-style Custom CSS with PROPER SCROLLING
+    # ChatGPT-style Custom CSS
     st.markdown("""
     <style>
     /* ChatGPT-style theme */
@@ -219,13 +530,12 @@ def main():
         background-color: #202123;
     }
     
-    /* Main container - proper scrolling area */
+    /* Main container - proper scrolling */
     .main .block-container {
         padding-bottom: 200px !important;
         padding-top: 2rem !important;
         max-width: 48rem !important;
         margin: 0 auto !important;
-        overflow-y: auto !important;
     }
     
     /* Chat message styling */
@@ -246,7 +556,7 @@ def main():
         background-color: #343541 !important;
     }
     
-    /* Fixed file uploader above input - CLEANER */
+    /* Fixed file uploader above input */
     .fixed-uploader-container {
         position: fixed !important;
         bottom: 80px !important;
@@ -275,7 +585,7 @@ def main():
         z-index: 999 !important;
     }
     
-    /* Input field with proper text area height */
+    /* Input field styling */
     [data-testid="stChatInput"] textarea {
         background-color: #40414f !important;
         color: #ececf1 !important;
@@ -295,7 +605,6 @@ def main():
         outline: none !important;
     }
     
-    /* Hide default streamlit chat input styling */
     [data-testid="stChatInput"] > div {
         background-color: transparent !important;
         border: none !important;
@@ -384,7 +693,7 @@ def main():
         border-radius: 0.5rem !important;
     }
     
-    /* File uploader styling - COMPACT */
+    /* File uploader styling */
     [data-testid="stFileUploader"] {
         background-color: transparent !important;
         border: none !important;
@@ -413,7 +722,7 @@ def main():
     # Create tabs after authentication
     tab1, tab2 = st.tabs(["📄 TED Scraper", "💬 AI Assistant"])
     
-    # ============= TAB 1: TED SCRAPER (keeping existing) =============
+    # ============= TAB 1: TED SCRAPER =============
     with tab1:
         st.header("📄 TED EU Notice Scraper")
         st.write("Download TED procurement notices to Excel (data is exported as a table for Power Automate).")
@@ -474,7 +783,7 @@ def main():
     with tab2:
         # Sidebar for document library
         with st.sidebar:
-            # Get Azure credentials from secrets (auto-load)
+            # Get Azure credentials from secrets
             azure_endpoint = get_secret("AZURE_ENDPOINT", "")
             azure_key = get_secret("AZURE_API_KEY", "")
             deployment_name = get_secret("DEPLOYMENT_NAME", "gpt-4o-mini")
@@ -497,7 +806,7 @@ def main():
             st.markdown("## 📚 Document Library")
             st.caption("Optional: Upload files for context")
             
-            # Initialize document store in session state
+            # Initialize document store
             if "document_store" not in st.session_state:
                 st.session_state.document_store = {}
             
@@ -531,7 +840,7 @@ def main():
                             del st.session_state.document_store[doc_name]
                             st.rerun()
             
-            # Clear chat button in sidebar
+            # Clear chat button
             st.markdown("---")
             if st.button("🗑️ Clear Chat", use_container_width=True):
                 st.session_state.chat_messages = []
@@ -553,7 +862,7 @@ def main():
             if "chat_messages" not in st.session_state:
                 st.session_state.chat_messages = []
             
-            # Display welcome message if no chat history
+            # Display welcome message
             if not st.session_state.chat_messages:
                 with st.chat_message("assistant", avatar=BOT_AVATAR_URL):
                     st.markdown("""
@@ -570,16 +879,15 @@ def main():
                     Stellen Sie mir einfach eine Frage!
                     """)
             
-            # Display chat history with bot and user avatars
+            # Display chat history
             for message in st.session_state.chat_messages:
                 avatar = BOT_AVATAR_URL if message["role"] == "assistant" else USER_AVATAR_URL
                 with st.chat_message(message["role"], avatar=avatar):
                     st.markdown(message["content"])
             
-            # Fixed file uploader above input - USING CONTAINER
+            # Fixed file uploader above input
             st.markdown('<div class="fixed-uploader-container">', unsafe_allow_html=True)
             
-            # Quick file upload option
             quick_file = st.file_uploader(
                 "📎 Drag and drop file here or click to browse", 
                 type=['pdf', 'docx', 'txt'],
@@ -598,9 +906,9 @@ def main():
             
             st.markdown('</div>', unsafe_allow_html=True)
             
-            # Chat input (fixed at bottom via CSS)
+            # Chat input
             if prompt := st.chat_input("Message JKM AI Assistant..."):
-                # Prepare context from library if available
+                # Prepare context
                 context_parts = []
                 
                 if st.session_state.document_store:
@@ -610,12 +918,12 @@ def main():
                     ])
                     context_parts.append(library_context)
                 
-                # Add user message to chat
+                # Add user message
                 st.session_state.chat_messages.append({"role": "user", "content": prompt})
                 with st.chat_message("user", avatar=USER_AVATAR_URL):
                     st.markdown(prompt)
                 
-                # Prepare system message with IMPROVED INSTRUCTIONS
+                # Prepare system message
                 if context_parts:
                     full_context = "\n\n".join(context_parts)
                     system_content = f"""You are JKM AI Assistant - a helpful AI assistant for tenders, procurement documents, and general tasks.
@@ -647,7 +955,7 @@ INSTRUCTIONS:
                     for m in st.session_state.chat_messages
                 ]
                 
-                # Get and display response
+                # Get response
                 with st.chat_message("assistant", avatar=BOT_AVATAR_URL):
                     try:
                         stream = get_azure_chatbot_response(
