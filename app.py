@@ -156,100 +156,29 @@ def auth_flow():
         st.stop()
     return True
 
-# ------------------- COPILOT STUDIO CLIENT (FIXED FOR M365 AGENTS SDK) -------------------
+# ------------------- COPILOT STUDIO CLIENT WITH IN-APP DEBUGGING -------------------
 class CopilotStudioM365Client:
-    """Copilot Studio M365 Agents SDK client - FIXED"""
+    """Copilot Studio client with in-app debugging"""
     def __init__(self, endpoint_url, power_platform_token):
-        # The endpoint already includes /conversations
-        self.base_endpoint = endpoint_url.split('?')[0]  # Remove query params
+        self.base_endpoint = endpoint_url.split('?')[0]
         self.power_platform_token = power_platform_token
         self.conversation_id = None
         self.watermark = None
-        self.last_error = None
+        self.debug_log = []  # Store debug messages to show in chat
+        
+    def log(self, msg):
+        """Add to debug log"""
+        self.debug_log.append(msg)
+        print(msg)  # Still print for cloud logs
+        
+    def get_debug_output(self):
+        """Return formatted debug log"""
+        if not self.debug_log:
+            return ""
+        return "\n\n**🔍 Debug Log:**\n``````"
         
     def start_conversation(self):
-        """Create conversation using M365 Agents SDK format"""
-        headers = {
-            "Authorization": f"Bearer {self.power_platform_token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "x-ms-client-request-id": f"streamlit-{int(time.time())}"
-        }
-        
-        # For M365 Agents SDK, we POST directly to /conversations
-        try:
-            print(f"\n{'='*60}")
-            print(f"DEBUG: Creating conversation")
-            print(f"DEBUG: POST to: {self.base_endpoint}")
-            print(f"DEBUG: Token length: {len(self.power_platform_token)}")
-            
-            # Empty body for conversation creation
-            response = requests.post(
-                self.base_endpoint,
-                headers=headers,
-                json={},
-                timeout=30
-            )
-            
-            print(f"DEBUG: Status: {response.status_code}")
-            print(f"DEBUG: Response: {response.text[:1000]}")
-            print(f"{'='*60}\n")
-            
-            if response.status_code in [200, 201]:
-                data = response.json()
-                # The response should contain an 'id' field
-                self.conversation_id = data.get("id") or data.get("conversationId")
-                
-                if self.conversation_id:
-                    print(f"✅ Conversation created: {self.conversation_id}")
-                    return True
-                else:
-                    print(f"❌ No conversation ID in response: {data}")
-                    self.last_error = {"status": 200, "body": "No conversation ID", "data": data}
-                    return False
-            else:
-                self.last_error = {"status": response.status_code, "body": response.text}
-                return False
-                
-        except Exception as e:
-            print(f"❌ Exception: {e}")
-            import traceback
-            traceback.print_exc()
-            self.last_error = {"exception": str(e)}
-            return False
-    
-    def get_error_details(self):
-        if not self.last_error:
-            return "No error details"
-        
-        msg = "**🔍 Debug Info:**\n\n"
-        
-        if "status" in self.last_error:
-            msg += f"**Status:** {self.last_error['status']}\n\n"
-            msg += f"**Response:**\n``````\n\n"
-        
-        if "exception" in self.last_error:
-            msg += f"**Exception:** {self.last_error['exception']}\n\n"
-        
-        if "data" in self.last_error:
-            msg += f"**Data:** {self.last_error['data']}\n\n"
-        
-        msg += "**📋 Possible Issues:**\n\n"
-        
-        if self.last_error.get("status") == 400:
-            msg += "**400 Bad Request** - The API format might be wrong.\n\n"
-            msg += "**Try this:**\n"
-            msg += "1. Go to Copilot Studio → Your Agent\n"
-            msg += "2. Click Channels → Web app\n"
-            msg += "3. Make sure you copied the FULL connection string\n"
-            msg += "4. The string should end with `/conversations?api-version=...`\n\n"
-        
-        return msg
-    
-    def send_message(self, message):
-        if not self.conversation_id:
-            if not self.start_conversation():
-                return f"❌ Verbindung fehlgeschlagen\n\n{self.get_error_details()}"
+        self.debug_log = []  # Clear previous logs
         
         headers = {
             "Authorization": f"Bearer {self.power_platform_token}",
@@ -257,26 +186,71 @@ class CopilotStudioM365Client:
             "Accept": "application/json"
         }
         
-        # Build activity payload
+        try:
+            self.log(f"POST to: {self.base_endpoint}")
+            self.log(f"Token length: {len(self.power_platform_token)}")
+            self.log(f"Token starts: {self.power_platform_token[:30]}...")
+            
+            response = requests.post(
+                self.base_endpoint,
+                headers=headers,
+                json={},
+                timeout=30
+            )
+            
+            self.log(f"Status: {response.status_code}")
+            self.log(f"Response: {response.text[:500]}")
+            
+            if response.status_code in [200, 201]:
+                data = response.json()
+                self.conversation_id = data.get("id") or data.get("conversationId")
+                
+                if self.conversation_id:
+                    self.log(f"✅ Conversation ID: {self.conversation_id}")
+                    return True
+                else:
+                    self.log(f"❌ No conversation ID in response")
+                    return False
+            else:
+                self.log(f"❌ Failed with status {response.status_code}")
+                return False
+                
+        except Exception as e:
+            self.log(f"❌ Exception: {str(e)}")
+            import traceback
+            self.log(traceback.format_exc())
+            return False
+    
+    def send_message(self, message):
+        if not self.conversation_id:
+            if not self.start_conversation():
+                error_msg = f"❌ Konnte keine Verbindung herstellen."
+                error_msg += self.get_debug_output()
+                error_msg += "\n\n**💡 Nächste Schritte:**\n"
+                error_msg += "1. Überprüfen Sie den COPILOT_STUDIO_ENDPOINT in secrets.toml\n"
+                error_msg += "2. Stellen Sie sicher, dass der Agent veröffentlicht ist\n"
+                error_msg += "3. Prüfen Sie Azure App Permissions für Power Platform API\n"
+                return error_msg
+        
+        headers = {
+            "Authorization": f"Bearer {self.power_platform_token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        
         user_id = f"user_{abs(hash(self.power_platform_token)) % 100000}"
         
         payload = {
             "type": "message",
             "text": message,
-            "from": {
-                "id": user_id,
-                "name": "User"
-            },
+            "from": {"id": user_id, "name": "User"},
             "locale": "de-DE"
         }
         
         try:
-            # POST to /conversations/{id}/activities
             activities_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
             
-            print(f"DEBUG: Sending message")
-            print(f"DEBUG: POST to: {activities_url}")
-            print(f"DEBUG: Payload: {json.dumps(payload, indent=2)}")
+            self.log(f"Sending message to: {activities_url}")
             
             response = requests.post(
                 activities_url,
@@ -285,16 +259,17 @@ class CopilotStudioM365Client:
                 timeout=30
             )
             
-            print(f"DEBUG: Send status: {response.status_code}")
-            print(f"DEBUG: Send response: {response.text[:500]}")
+            self.log(f"Send status: {response.status_code}")
             
             if response.status_code in [200, 201, 202]:
                 return self.get_response()
             else:
-                return f"❌ Senden fehlgeschlagen: {response.status_code}\n\n``````"
+                self.log(f"Send failed: {response.text[:500]}")
+                return f"❌ Fehler beim Senden: {response.status_code}{self.get_debug_output()}"
                 
         except Exception as e:
-            return f"❌ Exception: {str(e)}"
+            self.log(f"Send exception: {str(e)}")
+            return f"❌ Exception: {str(e)}{self.get_debug_output()}"
     
     def get_response(self, max_attempts=25, delay=1.5):
         headers = {
@@ -308,7 +283,6 @@ class CopilotStudioM365Client:
             time.sleep(delay)
             
             try:
-                # GET /conversations/{id}/activities
                 activities_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
                 if self.watermark:
                     activities_url += f"?watermark={self.watermark}"
@@ -320,22 +294,21 @@ class CopilotStudioM365Client:
                     activities = data.get("activities", [])
                     self.watermark = data.get("watermark")
                     
-                    print(f"DEBUG: Poll {attempt+1}/{max_attempts}: {len(activities)} activities")
+                    self.log(f"Poll {attempt+1}: {len(activities)} activities")
                     
                     for activity in reversed(activities):
                         if activity.get("type") == "message":
                             from_id = activity.get("from", {}).get("id", "")
-                            # Skip if it's from the user
                             if from_id != user_id:
                                 text = activity.get("text", "")
                                 if text and text.strip():
-                                    print(f"✅ Bot response: {text[:100]}")
+                                    self.log(f"✅ Got response")
                                     return text
             except Exception as e:
-                print(f"Poll error: {e}")
+                self.log(f"Poll error: {e}")
                 continue
         
-        return "⏱️ Timeout - keine Antwort vom Agent"
+        return f"⏱️ Timeout{self.get_debug_output()}"
 
 
 # ---------------- TED SCRAPER FUNCTIONS ----------------
@@ -1214,4 +1187,5 @@ INSTRUCTIONS:
 
 if __name__ == "__main__":
     main()
+
 
