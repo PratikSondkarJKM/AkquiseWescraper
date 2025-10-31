@@ -155,107 +155,37 @@ def auth_flow():
         st.stop()
     return True
 
-# ------------------- COPILOT STUDIO CLIENT -------------------
-class CopilotStudioM365Client:
-    """Copilot Studio client using Power Platform token"""
-    def __init__(self, endpoint_url, power_platform_token):
-        self.base_endpoint = endpoint_url.split('?')[0]
-        self.power_platform_token = power_platform_token
-        self.conversation_id = None
-        self.watermark = None
+with tab2:
+    with st.sidebar:
+        azure_endpoint = get_secret("AZURE_ENDPOINT", "")
+        azure_key = get_secret("AZURE_API_KEY", "")
+        deployment_name = get_secret("DEPLOYMENT_NAME", "gpt-4o-mini")
         
-    def start_conversation(self):
-        headers = {
-            "Authorization": f"Bearer {self.power_platform_token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }
+        st.markdown("## 🔑 Configuration")
         
-        try:
-            response = requests.post(
-                self.base_endpoint,
-                headers=headers,
-                json={},
-                timeout=30
-            )
+        if COPILOT_STUDIO_ENDPOINT:
+            st.success("✅ Copilot Studio (SharePoint)")
+            st.info("🔗 M365 Agents SDK")
             
-            if response.status_code in [200, 201]:
-                data = response.json()
-                self.conversation_id = data.get("id") or data.get("conversationId")
-                return True
-            else:
-                print(f"Failed: {response.status_code} - {response.text}")
-                return False
-        except Exception as e:
-            print(f"Exception: {e}")
-            return False
-    
-    def send_message(self, message):
-        if not self.conversation_id:
-            if not self.start_conversation():
-                return "❌ Konnte keine Verbindung herstellen."
-        
-        headers = {
-            "Authorization": f"Bearer {self.power_platform_token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }
-        
-        user_id = f"user_{abs(hash(self.power_platform_token)) % 100000}"
-        
-        activity = {
-            "type": "message",
-            "text": message,
-            "from": {"id": user_id, "name": "User"},
-            "channelId": "directline",
-            "locale": "de-DE"
-        }
-        
-        try:
-            activity_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
-            response = requests.post(activity_url, headers=headers, json=activity, timeout=30)
-            
-            if response.status_code in [200, 201, 202]:
-                return self.get_response()
-            else:
-                return f"❌ Fehler: {response.status_code}"
-        except Exception as e:
-            return f"❌ Fehler: {str(e)}"
-    
-    def get_response(self, max_attempts=25, delay=1.5):
-        headers = {
-            "Authorization": f"Bearer {self.power_platform_token}",
-            "Accept": "application/json"
-        }
-        
-        user_id = f"user_{abs(hash(self.power_platform_token)) % 100000}"
-        
-        for attempt in range(max_attempts):
-            time.sleep(delay)
-            
-            try:
-                activities_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
-                if self.watermark:
-                    activities_url += f"?watermark={self.watermark}"
+            # ADD THIS DEBUG SECTION
+            with st.expander("🔍 Debug Info", expanded=False):
+                st.write("**Endpoint:**")
+                st.code(COPILOT_STUDIO_ENDPOINT, language="text")
                 
-                response = requests.get(activities_url, headers=headers, timeout=30)
+                pp_token = st.session_state.get("power_platform_token", "")
+                if pp_token:
+                    st.write("**Power Platform Token Status:**")
+                    st.success(f"✅ Token exists ({len(pp_token)} chars)")
+                    st.code(f"Token preview: {pp_token[:30]}...", language="text")
+                else:
+                    st.error("❌ No Power Platform token found!")
+                    st.info("Try logging out and back in")
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    activities = data.get("activities", [])
-                    self.watermark = data.get("watermark")
-                    
-                    for activity in reversed(activities):
-                        if activity.get("type") == "message":
-                            from_id = activity.get("from", {}).get("id", "")
-                            if from_id != user_id:
-                                text = activity.get("text", "")
-                                if text and text.strip():
-                                    return text
-            except Exception as e:
-                continue
+                if st.button("🔄 Refresh Tokens"):
+                    st.session_state.clear()
+                    st.rerun()
         
-        return "⏱️ Antwort dauert länger. Bitte erneut versuchen."
+        # ... rest of your sidebar code ...
 
 # ---------------- TED SCRAPER FUNCTIONS ----------------
 def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_file):
@@ -1114,3 +1044,4 @@ INSTRUCTIONS:
 
 if __name__ == "__main__":
     main()
+
