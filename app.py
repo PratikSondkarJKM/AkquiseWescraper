@@ -29,13 +29,13 @@ REDIRECT_URI = get_secret("REDIRECT_URI", "http://localhost:8501")
 
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}" if TENANT_ID else ""
 SCOPE = ["https://graph.microsoft.com/User.Read"]
+POWER_PLATFORM_SCOPE = ["https://api.powerplatform.com/.default"]
 
 API = "https://api.ted.europa.eu/v3/notices/search"
 
-# **NEW: Copilot Studio Connection String**
 COPILOT_STUDIO_ENDPOINT = get_secret("COPILOT_STUDIO_ENDPOINT", "")
 
-# Avatars - SWAPPED: Assistant = JKM Logo, User = Bot
+# Avatars
 JKM_LOGO_URL = "https://www.xing.com/imagecache/public/scaled_original_image/eyJ1dWlkIjoiMGE2MTk2MTYtODI4Zi00MWZlLWEzN2ItMjczZGM2ODc5MGJmIiwiYXBwX2NvbnRleHQiOiJlbnRpdHktcGFnZXMiLCJtYXhfd2lkdGgiOjMyMCwibWF4X2hlaWdodCI6MzIwfQ?signature=a21e5c1393125a94fc9765898c25d73a064665dc3aacf872667c902d7ed9c3f9"
 BOT_AVATAR_URL = "https://raw.githubusercontent.com/PratikSondkarJKM/AkquiseWescraper/refs/heads/main/botavatar.svg"
 
@@ -43,16 +43,6 @@ BOT_AVATAR_URL = "https://raw.githubusercontent.com/PratikSondkarJKM/AkquiseWesc
 def build_msal_app():
     if not CLIENT_ID or not CLIENT_SECRET or not TENANT_ID:
         st.error("❌ Microsoft OAuth credentials not configured!")
-        st.info("""
-        Please create `.streamlit/secrets.toml` in your project directory with:
-        
-        ```
-        CLIENT_ID = "your-client-id"
-        CLIENT_SECRET = "your-client-secret"
-        TENANT_ID = "your-tenant-id"
-        REDIRECT_URI = "http://localhost:8501"
-        ```
-        """)
         st.stop()
     
     return ConfidentialClientApplication(
@@ -64,6 +54,17 @@ def build_msal_app():
 def fetch_token(auth_code):
     msal_app = build_msal_app()
     return msal_app.acquire_token_by_authorization_code(auth_code, scopes=SCOPE, redirect_uri=REDIRECT_URI)
+
+def get_power_platform_token():
+    """Get token for Power Platform API"""
+    msal_app = build_msal_app()
+    result = msal_app.acquire_token_for_client(scopes=POWER_PLATFORM_SCOPE)
+    
+    if "access_token" in result:
+        return result["access_token"]
+    else:
+        print(f"Failed to get Power Platform token: {result.get('error_description')}")
+        return None
 
 def login_button():
     msal_app = build_msal_app()
@@ -138,6 +139,12 @@ def auth_flow():
         token_data = fetch_token(code)
         if "access_token" in token_data:
             st.session_state["user_token"] = token_data["access_token"]
+            
+            # Get Power Platform token
+            pp_token = get_power_platform_token()
+            if pp_token:
+                st.session_state["power_platform_token"] = pp_token
+            
             st.query_params.clear()
             st.rerun()
         else:
@@ -148,31 +155,23 @@ def auth_flow():
         st.stop()
     return True
 
-# **UPDATED: Copilot Studio M365 Client with better error handling**
+# ------------------- COPILOT STUDIO CLIENT -------------------
 class CopilotStudioM365Client:
-    """
-    Microsoft 365 Agents SDK client for Copilot Studio
-    """
-    def __init__(self, endpoint_url, user_token):
-        # Parse the endpoint URL
-        self.base_endpoint = endpoint_url.split('?')[0]  # Remove query params
-        self.user_token = user_token
+    """Copilot Studio client using Power Platform token"""
+    def __init__(self, endpoint_url, power_platform_token):
+        self.base_endpoint = endpoint_url.split('?')[0]
+        self.power_platform_token = power_platform_token
         self.conversation_id = None
         self.watermark = None
         
     def start_conversation(self):
-        """Create a new conversation"""
         headers = {
-            "Authorization": f"Bearer {self.user_token}",
+            "Authorization": f"Bearer {self.power_platform_token}",
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
         
         try:
-            # POST to create conversation
-            print(f"DEBUG: Calling {self.base_endpoint}")
-            print(f"DEBUG: Token length: {len(self.user_token)}")
-            
             response = requests.post(
                 self.base_endpoint,
                 headers=headers,
@@ -180,90 +179,61 @@ class CopilotStudioM365Client:
                 timeout=30
             )
             
-            print(f"DEBUG: Response status: {response.status_code}")
-            print(f"DEBUG: Response text: {response.text[:500]}")
-            
             if response.status_code in [200, 201]:
                 data = response.json()
                 self.conversation_id = data.get("id") or data.get("conversationId")
-                print(f"DEBUG: Conversation ID: {self.conversation_id}")
                 return True
             else:
                 print(f"Failed: {response.status_code} - {response.text}")
                 return False
-                
         except Exception as e:
             print(f"Exception: {e}")
-            import traceback
-            traceback.print_exc()
             return False
     
     def send_message(self, message):
-        """Send message to agent"""
         if not self.conversation_id:
             if not self.start_conversation():
-                return "❌ Konnte keine Verbindung herstellen. Bitte prüfen Sie:\n\n1. COPILOT_STUDIO_ENDPOINT ist korrekt\n2. Ihr Microsoft-Login ist aktiv\n3. Der Agent ist in Copilot Studio veröffentlicht"
+                return "❌ Konnte keine Verbindung herstellen."
         
         headers = {
-            "Authorization": f"Bearer {self.user_token}",
+            "Authorization": f"Bearer {self.power_platform_token}",
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
         
-        # Build activity
-        user_id = f"user_{abs(hash(self.user_token)) % 100000}"
+        user_id = f"user_{abs(hash(self.power_platform_token)) % 100000}"
         
         activity = {
             "type": "message",
             "text": message,
-            "from": {
-                "id": user_id,
-                "name": "User"
-            },
+            "from": {"id": user_id, "name": "User"},
             "channelId": "directline",
             "locale": "de-DE"
         }
         
         try:
-            # POST activity to conversation
             activity_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
-            
-            print(f"DEBUG: Sending to {activity_url}")
-            
-            response = requests.post(
-                activity_url,
-                headers=headers,
-                json=activity,
-                timeout=30
-            )
-            
-            print(f"DEBUG: Send response: {response.status_code}")
+            response = requests.post(activity_url, headers=headers, json=activity, timeout=30)
             
             if response.status_code in [200, 201, 202]:
-                # Poll for response
                 return self.get_response()
             else:
-                print(f"Send failed: {response.status_code} - {response.text}")
-                return f"❌ Fehler beim Senden: {response.status_code}"
-                
+                return f"❌ Fehler: {response.status_code}"
         except Exception as e:
-            print(f"Send exception: {e}")
-            import traceback
-            traceback.print_exc()
             return f"❌ Fehler: {str(e)}"
     
     def get_response(self, max_attempts=25, delay=1.5):
-        """Poll for response"""
         headers = {
-            "Authorization": f"Bearer {self.user_token}",
+            "Authorization": f"Bearer {self.power_platform_token}",
             "Accept": "application/json"
         }
+        
+        user_id = f"user_{abs(hash(self.power_platform_token)) % 100000}"
         
         for attempt in range(max_attempts):
             time.sleep(delay)
             
             try:
-                # GET activities from conversation
                 activities_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
                 if self.watermark:
                     activities_url += f"?watermark={self.watermark}"
@@ -275,29 +245,19 @@ class CopilotStudioM365Client:
                     activities = data.get("activities", [])
                     self.watermark = data.get("watermark")
                     
-                    print(f"DEBUG: Attempt {attempt+1}, got {len(activities)} activities")
-                    
-                    # Look for bot responses
-                    user_id = f"user_{abs(hash(self.user_token)) % 100000}"
-                    
                     for activity in reversed(activities):
                         if activity.get("type") == "message":
                             from_id = activity.get("from", {}).get("id", "")
-                            
-                            # Check if it's NOT from the user (must be from bot)
                             if from_id != user_id:
                                 text = activity.get("text", "")
                                 if text and text.strip():
-                                    print(f"DEBUG: Found bot response: {text[:100]}")
                                     return text
-                
             except Exception as e:
-                print(f"Poll error (attempt {attempt + 1}): {e}")
                 continue
         
-        return "⏱️ Die Antwort dauert länger als erwartet. Mögliche Gründe:\n\n1. Der Agent verarbeitet noch Ihre Anfrage\n2. SharePoint-Zugriff dauert länger\n3. Netzwerkprobleme\n\nBitte versuchen Sie es erneut."
+        return "⏱️ Antwort dauert länger. Bitte erneut versuchen."
 
-# ---------------- TED SCRAPER FUNCTIONS (ALL YOUR EXISTING CODE) ----------------
+# ---------------- TED SCRAPER FUNCTIONS ----------------
 def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_file):
     query = (
         f"(publication-date >={date_start}<={date_end}) AND (buyer-country IN ({buyer_country})) "
@@ -331,888 +291,4 @@ def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, js
             break
         page += 1
         time.sleep(0.2)
-    with open(json_file, "w", encoding="utf-8") as f:
-        json.dump({"notices": all_notices}, f, ensure_ascii=False, indent=2)
-
-def _get_links_block(notice: dict) -> dict:
-    links = notice.get("links") or {}
-    if isinstance(links, dict) and "links" in links and isinstance(links["links"], dict):
-        links = links["links"]
-    if isinstance(links, dict):
-        return { (k.lower() if isinstance(k,str) else k): v for k,v in links.items() }
-    return {}
-
-def _extract_xml_urls_from_notice(notice: dict) -> list:
-    block = _get_links_block(notice)
-    xml_block = block.get("xml")
-    urls = []
-    if isinstance(xml_block, dict):
-        for k,v in xml_block.items():
-            if isinstance(k,str) and k.lower()=="mul" and v:
-                urls.append(v)
-        for k,v in xml_block.items():
-            if isinstance(k,str) and k.lower()!="mul" and v:
-                urls.append(v)
-    elif isinstance(xml_block, str) and xml_block:
-        urls.append(xml_block)
-    return urls
-
-def fetch_notice_xml(session: requests.Session, pubno: str, notice: dict) -> bytes:
-    xml_headers = {"Accept":"application/xml","User-Agent":"Mozilla/5.0"}
-    for url in _extract_xml_urls_from_notice(notice):
-        try:
-            r = session.get(url, headers=xml_headers, timeout=60)
-            if r.status_code == 200 and r.content.strip():
-                return r.content
-        except requests.RequestException:
-            pass
-    for lang in ("en","de","fr"):
-        url = f"https://ted.europa.eu/{lang}/notice/{pubno}/xml"
-        try:
-            r = session.get(url, headers=xml_headers, timeout=60)
-            if r.status_code == 200 and r.content.strip():
-                return r.content
-        except requests.RequestException:
-            pass
-    detail_url = f"https://ted.europa.eu/en/notice/-/detail/{pubno}"
-    try:
-        html = session.get(detail_url, headers={"User-Agent":"Mozilla/5.0"}, timeout=60).text
-        m = re.search(r'https://ted\.europa\.eu/(?:en|de|fr)/notice/' + re.escape(pubno) + r'/xml', html)
-        if m:
-            r = session.get(m.group(0), headers=xml_headers, timeout=60)
-            if r.status_code == 200 and r.content.strip():
-                return r.content
-    except requests.RequestException:
-        pass
-    raise RuntimeError(f"No XML found for {pubno}")
-
-def _first_text(nodes):
-    for n in nodes or []:
-        t = (n.text or "").strip()
-        if t:
-            return t
-    return ""
-
-def _norm_date(d: str) -> str:
-    if not d:
-        return ""
-    d = d.rstrip("Zz")
-    return d.split("T")[0].split("+")[0]
-
-def _clean_title(raw: str) -> str:
-    if not raw: return ""
-    return re.sub(r"^\s*\d{4}[-_]\d{5,}[\s_\-–:]+", "", raw.strip())
-
-def _parse_iso_date(d: str):
-    try:
-        return datetime.strptime(d, "%Y-%m-%d")
-    except Exception:
-        return None
-
-def _duration_to_days(val: str, unit: str) -> int or None:
-    if not val:
-        return None
-    try:
-        num = float(str(val).strip().replace(",", "."))
-    except Exception:
-        return None
-    u = (unit or "").upper()
-    if u in ("DAY","D","DAYS"):
-        return int(round(num))
-    if u in ("MON","M","MONTH","MONTHS"):
-        return int(round(num * 30))
-    if u in ("ANN","Y","YEAR","YEARS"):
-        return int(round(num * 365))
-    return None
-
-def parse_xml_fields(xml_bytes: bytes) -> dict:
-    parser = etree.XMLParser(recover=True, huge_tree=True)
-    root = etree.parse(BytesIO(xml_bytes), parser)
-    ns = {k: v for k, v in (root.getroot().nsmap or {}).items() if k}
-    ns.setdefault("cbc","urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2")
-    ns.setdefault("cac","urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2")
-    ns.setdefault("efac","http://data.europa.eu/p27/eforms-ubl-extension-aggregate-components/1")
-    ns.setdefault("efbc","http://data.europa.eu/p27/eforms-ubl-extension-basic-components/1")
-
-    out = {}
-    out["Beschaffer"] = _first_text(
-        root.xpath(".//cac:ContractingParty//cac:PartyName/cbc:Name", namespaces=ns)
-        or root.xpath(".//efac:Organizations//efac:Company/cac:PartyName/cbc:Name", namespaces=ns)
-    )
-    out["Projektbezeichnung"] = _clean_title(
-        _first_text(root.xpath(".//cac:ProcurementProject/cbc:Name | .//cbc:Title | .//efbc:Title", namespaces=ns))
-    )
-    out["Ort/Region"] = _first_text(root.xpath("//cac:PostalAddress[1]/cbc:CityName", namespaces=ns))
-    out["Vergabeplattform"] = _first_text(
-        root.xpath(".//cbc:AccessToolsURI | .//cbc:WebsiteURI | .//cbc:URI | .//cbc:EndpointID", namespaces=ns)
-    )
-    pub_id = _first_text(root.xpath(".//efbc:NoticePublicationID[@schemeName='ojs-notice-id']", namespaces=ns))
-    out["Ted-Link"] = f"https://ted.europa.eu/en/notice/-/detail/{pub_id}" if pub_id else ""
-
-    start_nodes = root.xpath(
-        ".//cac:ProcurementProject/cac:PlannedPeriod/cbc:StartDate "
-        "| .//cac:ProcurementProjectLot//cac:ProcurementProject/cac:PlannedPeriod/cbc:StartDate",
-        namespaces=ns
-    )
-    end_nodes = root.xpath(
-        ".//cac:ProcurementProject/cac:PlannedPeriod/cbc:EndDate "
-        "| .//cac:ProcurementProjectLot//cac:ProcurementProject/cac:PlannedPeriod/cbc:EndDate",
-        namespaces=ns
-    )
-    start_norm = _norm_date(_first_text(start_nodes))
-    end_norm = _norm_date(_first_text(end_nodes))
-
-    if not start_norm and end_norm:
-        dur_nodes = root.xpath(
-            ".//cac:ProcurementProject/cac:PlannedPeriod/cbc:DurationMeasure "
-            "| .//cac:ProcurementProjectLot//cac:ProcurementProject/cac:PlannedPeriod/cbc:DurationMeasure",
-            namespaces=ns
-        )
-        dur_val, dur_unit = None, None
-        for dn in dur_nodes:
-            text_val = (dn.text or "").strip()
-            unit = (dn.get("unitCode") or "").strip()
-            if text_val:
-                dur_val, dur_unit = text_val, unit
-                break
-        days = _duration_to_days(dur_val, dur_unit) if dur_val else None
-        if days:
-            end_dt = _parse_iso_date(end_norm)
-            if end_dt:
-                start_norm = (end_dt - timedelta(days=days)).strftime("%Y-%m-%d")
-
-    out["Projektstart"] = start_norm
-    out["Projektende"] = end_norm
-
-    crit_nodes = root.xpath(
-        ".//*[contains(local-name(),'SelectionCriteria') or contains(local-name(),'SelectionCriterion')]/cbc:Description",
-        namespaces=ns
-    )
-    crit_text = " ".join((n.text or "").strip() for n in crit_nodes if (n.text or "").strip())
-    crit_text = re.sub(r"\bslc-[a-z0-9\-]+\b", "", crit_text, flags=re.I).strip()
-    out["Geforderte Unternehmensreferenzen"] = crit_text
-    out["Geforderte Kriterien CVs"] = "CV" if re.search(
-        r"\b(CV|Lebenslauf|Schlüsselpersonal|key staff|personaleinsatz)\b", crit_text, re.I
-    ) else ""
-
-    amount_nodes = root.xpath(
-        ".//cbc:EstimatedOverallContractAmount | .//cbc:EstimatedOverallContractAmount/cbc:Value | .//efbc:EstimatedValue | .//cbc:PayableAmount",
-        namespaces=ns
-    )
-    value_text = ""
-    if amount_nodes:
-        for node in amount_nodes:
-            if node.text and node.text.strip():
-                value_text = node.text.strip()
-                parent = node.getparent()
-                currency = node.get("currencyID") or (parent.get("currencyID") if parent is not None else None)
-                if currency:
-                    value_text += f" {currency}"
-                break
-    out["Projektvolumen"] = value_text or ""
-
-    tender_deadline_date = _norm_date(
-        _first_text(root.xpath(".//cac:TenderSubmissionDeadlinePeriod/cbc:EndDate", namespaces=ns))
-    )
-    if not tender_deadline_date:
-        tender_deadline_date = _norm_date(
-            _first_text(root.xpath(".//cac:TenderingTerms/cbc:SubmissionDeadlineDate", namespaces=ns))
-        )
-    if not tender_deadline_date:
-        tender_deadline_date = _norm_date(
-            _first_text(root.xpath(".//cac:InterestExpressionReceptionPeriod/cbc:EndDate", namespaces=ns))
-        )
-    if not tender_deadline_date:
-        tender_deadline_date = _norm_date(
-            _first_text(root.xpath(".//efac:InterestExpressionReceptionPeriod/cbc:EndDate", namespaces=ns))
-        )
-    participation_deadline_date = _norm_date(
-        _first_text(root.xpath(".//cac:ParticipationRequestReceptionPeriod/cbc:EndDate", namespaces=ns))
-    )
-    if not participation_deadline_date:
-        participation_deadline_date = _norm_date(
-            _first_text(root.xpath(".//efac:ParticipationRequestReceptionPeriod/cbc:EndDate", namespaces=ns))
-        )
-    out["Frist Abgabedatum"] = tender_deadline_date or participation_deadline_date
-
-    pub_date = _first_text(root.xpath(".//efbc:PublicationDate", namespaces=ns))
-    if not pub_date:
-        pub_date = _first_text(root.xpath(".//cbc:PublicationDate", namespaces=ns))
-    out["Veröffentlichung Datum"] = _norm_date(pub_date)
-
-    cpv_codes_set = set()
-    main_cpv_nodes = root.xpath(".//cac:MainCommodityClassification/cbc:ItemClassificationCode", namespaces=ns)
-    for node in main_cpv_nodes:
-        if node.text:
-            cpv_codes_set.add(node.text.strip())
-    add_cpv_nodes = root.xpath(".//cac:AdditionalCommodityClassification/cbc:ItemClassificationCode", namespaces=ns)
-    for node in add_cpv_nodes:
-        if node.text:
-            cpv_codes_set.add(node.text.strip())
-    out["CPV Codes"] = ", ".join(sorted(cpv_codes_set))
-
-    lots = root.xpath(".//cac:ProcurementProjectLot", namespaces=ns)
-    lot_names = []
-    for lot in lots:
-        lot_name = lot.xpath(".//cac:ProcurementProject/cbc:Name", namespaces=ns)
-        if lot_name and len(lot_name) > 0:
-            text = lot_name[0].text.strip()
-            if text:
-                lot_names.append(text)
-    out["Leistungen/Rollen"] = "; ".join(lot_names)
-
-    return out
-
-def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
-    temp_json = tempfile.mktemp(suffix=".json")
-    fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, temp_json)
-    with open(temp_json, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    notices = data.get("results") or data.get("items") or data.get("notices") or []
-    s = requests.Session()
-    rows = []
-    for n in notices:
-        pubno = n.get("publication-number")
-        if not pubno:
-            continue
-        try:
-            xml_bytes = fetch_notice_xml(s, pubno, n)
-            fields = parse_xml_fields(xml_bytes)
-            fields["publication-number"] = pubno
-            fields.setdefault("Ted-Link", f"https://ted.europa.eu/en/notice/-/detail/{pubno}")
-            rows.append(fields)
-        except Exception as e:
-            print(f"ERR {pubno}: {e}")
-        time.sleep(0.25)
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    headers = [
-        "publication-number","Beschaffer","Projektbezeichnung","Ort/Region",
-        "Vergabeplattform","Ted-Link","Projektstart","Projektende",
-        "Geforderte Unternehmensreferenzen","Geforderte Kriterien CVs",
-        "Projektvolumen", "Frist Abgabedatum", "Veröffentlichung Datum", "CPV Codes", "Leistungen/Rollen"
-    ]
-    ws.append(headers)
-    for r in rows:
-        ws.append([r.get(h, "") for h in headers])
-    last_row = len(rows) + 1
-    last_col = len(headers)
-    table_range = f"A1:{get_column_letter(last_col)}{last_row}"
-    table = Table(displayName="Teddata", ref=table_range)
-    style = TableStyleInfo(
-        name="TableStyleMedium9",
-        showFirstColumn=False,
-        showLastColumn=False,
-        showRowStripes=True,
-        showColumnStripes=False,
-    )
-    table.tableStyleInfo = style
-    ws.add_table(table)
-    wb.save(output_excel)
-    os.remove(temp_json)
-
-# ---------------- CHATBOT FUNCTIONS (ALL YOUR EXISTING CODE) ----------------
-def extract_text_from_pdf(file):
-    try:
-        pdf_reader = PyPDF2.PdfReader(file)
-        text = ""
-        for page_num, page in enumerate(pdf_reader.pages):
-            text += f"\n--- Page {page_num + 1} ---\n"
-            text += page.extract_text()
-        return text
-    except Exception as e:
-        return f"Error reading PDF: {str(e)}"
-
-def extract_text_from_docx(file):
-    try:
-        doc = docx.Document(file)
-        text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
-        return text
-    except Exception as e:
-        return f"Error reading DOCX: {str(e)}"
-
-def extract_text_from_txt(file):
-    try:
-        return file.read().decode('utf-8')
-    except Exception as e:
-        return f"Error reading TXT: {str(e)}"
-
-def extract_text_from_excel(file):
-    try:
-        file_extension = file.name.split('.')[-1].lower()
-        
-        if file_extension == 'csv':
-            df = pd.read_csv(file)
-        else:  # xlsx or xls
-            df = pd.read_excel(file)
-        
-        text = f"Excel File: {file.name}\n"
-        text += f"Rows: {len(df)}, Columns: {len(df.columns)}\n\n"
-        text += f"Column Names: {', '.join(df.columns.tolist())}\n\n"
-        text += "Data Preview (first 50 rows):\n"
-        text += df.head(50).to_string(index=False)
-        
-        return text
-    except Exception as e:
-        return f"Error reading Excel file: {str(e)}"
-
-def extract_text_from_image(file):
-    try:
-        image = Image.open(file)
-        
-        text = f"Image File: {file.name}\n"
-        text += f"Format: {image.format}\n"
-        text += f"Size: {image.size[0]}x{image.size[1]} pixels\n"
-        text += f"Mode: {image.mode}\n\n"
-        text += "Note: Image uploaded. Ask questions about its content."
-        
-        return text
-    except Exception as e:
-        return f"Error reading image: {str(e)}"
-
-def process_uploaded_file(uploaded_file):
-    file_extension = uploaded_file.name.split('.')[-1].lower()
-    
-    if file_extension == 'pdf':
-        return extract_text_from_pdf(uploaded_file)
-    elif file_extension == 'docx':
-        return extract_text_from_docx(uploaded_file)
-    elif file_extension == 'txt':
-        return extract_text_from_txt(uploaded_file)
-    elif file_extension in ['xlsx', 'xls', 'csv']:
-        return extract_text_from_excel(uploaded_file)
-    elif file_extension in ['png', 'jpg', 'jpeg']:
-        return extract_text_from_image(uploaded_file)
-    else:
-        return f"Unsupported file type: {file_extension}"
-
-def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_name, api_version="2024-08-01-preview"):
-    client = AzureOpenAI(
-        azure_endpoint=azure_endpoint,
-        api_key=azure_key,
-        api_version=api_version
-    )
-    
-    stream = client.chat.completions.create(
-        model=deployment_name,
-        messages=messages,
-        stream=True,
-        temperature=0.7,
-    )
-    return stream
-
-
-# ------------------- MAIN APP -------------------
-def main():
-    st.set_page_config(page_title="TED Scraper & AI Assistant", layout="wide", initial_sidebar_state="collapsed")
-    
-    # ChatGPT-style Custom CSS + Thinking animation
-    st.markdown("""
-    <style>
-    /* ChatGPT-style theme */
-    [data-testid="stAppViewContainer"] {
-        background-color: #343541;
-    }
-    
-    [data-testid="stHeader"] {
-        background-color: #343541;
-    }
-    
-    [data-testid="stSidebar"] {
-        background-color: #202123;
-    }
-    
-    /* Main container */
-    .main .block-container {
-        padding-top: 2rem !important;
-        padding-bottom: 2rem !important;
-        max-width: 48rem !important;
-        margin: 0 auto !important;
-    }
-    
-    /* Chat message styling */
-    .stChatMessage {
-        background-color: transparent !important;
-        padding: 1.5rem 0 !important;
-    }
-    
-    [data-testid="stChatMessageContent"] {
-        background-color: #444654 !important;
-        border-radius: 0.5rem;
-        padding: 1rem 1.5rem !important;
-        color: #ececf1 !important;
-    }
-    
-    /* User message - darker background */
-    [data-testid="stChatMessage"][data-testid*="user"] [data-testid="stChatMessageContent"] {
-        background-color: #343541 !important;
-    }
-    
-    /* Thinking animation */
-    .thinking-indicator {
-        font-style: italic;
-        color: #8e8ea0;
-        font-size: 0.9rem;
-        padding: 0.5rem 0;
-    }
-    
-    .thinking-dots::after {
-        content: '...';
-        animation: dots 1.5s steps(4, end) infinite;
-    }
-    
-    @keyframes dots {
-        0%, 20% { content: '.'; }
-        40% { content: '..'; }
-        60%, 100% { content: '...'; }
-    }
-    
-    /* Input field styling */
-    [data-testid="stChatInput"] textarea {
-        background-color: #40414f !important;
-        color: #ececf1 !important;
-        border: 1px solid #565869 !important;
-        border-radius: 0.75rem !important;
-        padding: 0.75rem 1rem !important;
-        font-size: 1rem !important;
-        min-height: 52px !important;
-        max-height: 200px !important;
-        line-height: 1.5 !important;
-        resize: none !important;
-    }
-    
-    [data-testid="stChatInput"] textarea:focus {
-        border-color: #10a37f !important;
-        box-shadow: 0 0 0 1px #10a37f !important;
-        outline: none !important;
-    }
-    
-    [data-testid="stChatInput"] > div {
-        background-color: transparent !important;
-        border: none !important;
-    }
-    
-    /* Text and headers */
-    .stMarkdown, .stText {
-        color: #ececf1 !important;
-    }
-    
-    h1, h2, h3, h4, h5, h6 {
-        color: #ececf1 !important;
-    }
-    
-    /* Buttons */
-    .stButton button {
-        background-color: #10a37f !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 0.375rem !important;
-        padding: 0.5rem 1rem !important;
-        font-weight: 500 !important;
-    }
-    
-    .stButton button:hover {
-        background-color: #1a7f64 !important;
-    }
-    
-    /* Avatar styling */
-    [data-testid="stChatMessage"] img {
-        border-radius: 0.25rem !important;
-        width: 32px !important;
-        height: 32px !important;
-    }
-    
-    /* Success/Info/Warning boxes */
-    .stSuccess, .stInfo, .stWarning {
-        background-color: #444654 !important;
-        color: #ececf1 !important;
-        border-radius: 0.5rem !important;
-    }
-    
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 2rem;
-        background-color: #343541;
-        border-bottom: 1px solid #565869;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        color: #ececf1 !important;
-        background-color: transparent;
-        border-bottom: 2px solid transparent;
-        padding: 1rem 0;
-        font-weight: 500;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        border-bottom-color: #10a37f !important;
-        color: #10a37f !important;
-    }
-    
-    /* Input fields */
-    .stTextInput input, .stDateInput input, .stSelectbox select {
-        background-color: #40414f !important;
-        color: #ececf1 !important;
-        border: 1px solid #565869 !important;
-        border-radius: 0.375rem !important;
-    }
-    
-    /* Labels */
-    label {
-        color: #ececf1 !important;
-    }
-    
-    /* Download button */
-    .stDownloadButton button {
-        background-color: #10a37f !important;
-        color: white !important;
-    }
-    
-    /* Expander */
-    .streamlit-expanderHeader {
-        background-color: #444654 !important;
-        color: #ececf1 !important;
-        border-radius: 0.5rem !important;
-    }
-    
-    /* File uploader styling */
-    [data-testid="stFileUploader"] {
-        background-color: transparent !important;
-        border: none !important;
-        padding: 0 !important;
-        margin-bottom: 1rem !important;
-    }
-    
-    [data-testid="stFileUploader"] section {
-        border: 1px dashed #565869 !important;
-        border-radius: 0.5rem !important;
-        padding: 0.75rem !important;
-        background-color: #40414f !important;
-    }
-    
-    [data-testid="stFileUploader"] button {
-        background-color: #565869 !important;
-        color: #ececf1 !important;
-        font-size: 0.875rem !important;
-        padding: 0.25rem 0.5rem !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # Authentication guard
-    auth_flow()
-    
-    # Create tabs after authentication
-    tab1, tab2 = st.tabs(["📄 TED Scraper", "💬 AI Assistant"])
-    
-    # ============= TAB 1: TED SCRAPER (YOUR EXISTING CODE) =============
-    with tab1:
-        st.header("📄 TED EU Notice Scraper")
-        st.write("Download TED procurement notices to Excel (data is exported as a table for Power Automate).")
-        
-        with st.expander("ℹ️ How this works / Instructions", expanded=False):
-            st.write("""
-            1. Enter your filters (CPV, date range, country, filename).
-            2. Click **Run Scraper**. The script downloads notices and attachments, saves an Excel file.
-            3. Use the download button to save the Excel file wherever you want!
-            4. The exported file now contains an Excel table named 'TEDData', ready for Power Automate!
-            """)
-
-        c1, c2 = st.columns(2)
-        with c1:
-            cpv_codes = st.text_input(
-                "🔎 CPV Codes (space separated)",
-                "71541000 71500000 71240000 79421000 71000000 71248000 71312000 71700000 71300000 71520000 71250000 90712000 71313000",
-            )
-        with c2:
-            buyer_country = st.text_input("🌍 Buyer Country (ISO Alpha-3)", "DEU")
-
-        today = date.today()
-        date_col1, date_col2 = st.columns(2)
-        with date_col1:
-            start_date_obj = st.date_input("📆 Start Publication Date", value=today)
-        with date_col2:
-            end_date_obj = st.date_input("📆 End Publication Date", value=today)
-
-        date_start = start_date_obj.strftime("%Y%m%d")
-        date_end = end_date_obj.strftime("%Y%m%d")
-
-        output_excel = st.text_input(
-            "💾 Output Excel filename",
-            f"ted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-        )
-
-        if st.button("▶️ Run Scraper"):
-            st.info("Scraping... Please wait (can take a few minutes).")
-            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_excel:
-                try:
-                    main_scraper(cpv_codes, date_start, date_end, buyer_country, temp_excel.name)
-                    st.success("✅ Done! Download your Excel file below.")
-                    with open(temp_excel.name, "rb") as f:
-                        st.download_button(
-                            label="⬇️ Download Excel",
-                            data=f.read(),
-                            file_name=output_excel,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-                except Exception as e:
-                    st.error(f"❌ Error during scraping: {e}")
-                finally:
-                    temp_excel.close()
-                    if os.path.exists(temp_excel.name):
-                        os.remove(temp_excel.name)
-    
-    # ============= TAB 2: AI ASSISTANT (MODIFIED FOR COPILOT STUDIO) =============
-    with tab2:
-        # Sidebar for document library
-        with st.sidebar:
-            # **MODIFIED: Check for Copilot Studio endpoint**
-            azure_endpoint = get_secret("AZURE_ENDPOINT", "")
-            azure_key = get_secret("AZURE_API_KEY", "")
-            deployment_name = get_secret("DEPLOYMENT_NAME", "gpt-4o-mini")
-            
-            # Show configuration status
-            st.markdown("## 🔑 Configuration")
-            
-            # **NEW: Show Copilot Studio status**
-            if COPILOT_STUDIO_ENDPOINT:
-                st.success("✅ Copilot Studio (SharePoint)")
-                st.info("🔗 M365 Agents SDK")
-            elif azure_endpoint and azure_key:
-                st.success("✅ Azure AI Fallback")
-                st.info(f"🤖 {deployment_name}")
-            else:
-                st.warning("⚠️ No AI configured")
-            
-            st.markdown("---")
-            st.markdown("## 📚 Document Library")
-            st.caption("Optional: Upload files for context")
-            
-            # Initialize document store
-            if "document_store" not in st.session_state:
-                st.session_state.document_store = {}
-            
-            # File uploader in sidebar
-            library_files = st.file_uploader(
-                "Upload Documents", 
-                type=['pdf', 'docx', 'txt', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg'],
-                accept_multiple_files=True,
-                key="library_uploader",
-                help="Upload PDFs, Word, Excel, or image files",
-                label_visibility="collapsed"
-            )
-            
-            if library_files:
-                for uploaded_file in library_files:
-                    if uploaded_file.name not in st.session_state.document_store:
-                        with st.spinner(f"Processing {uploaded_file.name}..."):
-                            text = process_uploaded_file(uploaded_file)
-                            if text:
-                                st.session_state.document_store[uploaded_file.name] = text
-                                st.success(f"✅ {uploaded_file.name}")
-            
-            if st.session_state.document_store:
-                st.markdown(f"**📁 {len(st.session_state.document_store)} document(s)**")
-                for doc_name in list(st.session_state.document_store.keys()):
-                    col1, col2 = st.columns([4, 1])
-                    with col1:
-                        st.caption(f"• {doc_name}")
-                    with col2:
-                        if st.button("🗑️", key=f"del_{doc_name}"):
-                            del st.session_state.document_store[doc_name]
-                            st.rerun()
-            
-            # Clear chat button
-            st.markdown("---")
-            if st.button("🗑️ Clear Chat", use_container_width=True):
-                st.session_state.chat_messages = []
-                if "copilot_client" in st.session_state:
-                    del st.session_state.copilot_client
-                st.rerun()
-        
-        # Main chat interface
-        # **MODIFIED: Check for Copilot Studio first, fallback to Azure OpenAI**
-        use_copilot = bool(COPILOT_STUDIO_ENDPOINT)
-        
-        if not use_copilot and (not azure_endpoint or not azure_key):
-            st.error("❌ No AI configured!")
-            st.info("""
-            **Add to `.streamlit/secrets.toml`:**
-            ```
-            # For Copilot Studio (SharePoint):
-            COPILOT_STUDIO_ENDPOINT = "https://...your-connection-string..."
-            
-            # OR for Azure OpenAI:
-            AZURE_ENDPOINT = "https://your-resource.openai.azure.com"
-            AZURE_API_KEY = "your-api-key"
-            DEPLOYMENT_NAME = "gpt-4o-mini"
-            ```
-            """)
-        else:
-            # **NEW: Initialize Copilot Studio client if endpoint exists**
-            if use_copilot and "copilot_client" not in st.session_state:
-                user_token = st.session_state.get("user_token", "")
-                st.session_state.copilot_client = CopilotStudioM365Client(
-                    COPILOT_STUDIO_ENDPOINT,
-                    user_token
-                )
-            
-            # Initialize chat history
-            if "chat_messages" not in st.session_state:
-                st.session_state.chat_messages = []
-            
-            # Display welcome message
-            if not st.session_state.chat_messages:
-                with st.chat_message("assistant", avatar=JKM_LOGO_URL):
-                    # **MODIFIED: Different message based on AI type**
-                    if use_copilot:
-                        st.markdown("""
-                        👋 **Willkommen beim JKM AI Assistant!**
-                        
-                        Ich bin mit Ihrem SharePoint verbunden und kann auf Unternehmensdokumente zugreifen.
-                        
-                        **Möglichkeiten:**
-                        - 💬 SharePoint-Dokumente durchsuchen
-                        - 📄 Zusätzliche Dateien analysieren
-                        - 🔍 Ausschreibungen prüfen
-                        - ✍️ Dokumente erstellen
-                        
-                        Stellen Sie mir einfach eine Frage!
-                        """)
-                    else:
-                        st.markdown("""
-                        👋 **Willkommen beim JKM AI Assistant!**
-                        
-                        Ich bin Ihr KI-Assistent und kann Ihnen bei verschiedenen Aufgaben helfen.
-                        
-                        **Möglichkeiten:**
-                        - 💬 Allgemeine Fragen beantworten
-                        - 📄 Dokumente analysieren (PDF, Word, TXT)
-                        - 🔍 Ausschreibungen prüfen
-                        - ✍️ Texte schreiben und übersetzen
-                        
-                        Stellen Sie mir einfach eine Frage!
-                        """)
-            
-            # Display chat history
-            for message in st.session_state.chat_messages:
-                avatar = JKM_LOGO_URL if message["role"] == "assistant" else BOT_AVATAR_URL
-                with st.chat_message(message["role"], avatar=avatar):
-                    st.markdown(message["content"])
-            
-            # File uploader BEFORE chat input
-            st.markdown("---")
-            quick_file = st.file_uploader(
-                "📎 Drag and drop file here or click to browse", 
-                type=['pdf', 'docx', 'txt', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg'],
-                key="quick_uploader",
-                help="Upload documents, Excel files, or images"
-            )
-            
-            if quick_file:
-                if quick_file.name not in st.session_state.document_store:
-                    with st.spinner(f"Processing {quick_file.name}..."):
-                        text = process_uploaded_file(quick_file)
-                        if text:
-                            st.session_state.document_store[quick_file.name] = text
-                            
-                            # **NEW: Send to Copilot Studio if using it**
-                            if use_copilot and "copilot_client" in st.session_state:
-                                file_msg = f"Datei hochgeladen: {quick_file.name}\n\n{text[:3000]}"
-                                st.session_state.copilot_client.send_message(file_msg)
-                            
-                            st.success(f"✅ {quick_file.name} added")
-                            st.rerun()
-            
-            # Chat input
-            if prompt := st.chat_input("Message JKM AI Assistant..."):
-                # Add user message
-                st.session_state.chat_messages.append({"role": "user", "content": prompt})
-                with st.chat_message("user", avatar=BOT_AVATAR_URL):
-                    st.markdown(prompt)
-                
-                # Show thinking indicator
-                with st.chat_message("assistant", avatar=JKM_LOGO_URL):
-                    thinking_placeholder = st.empty()
-                    thinking_msg = "💭 Durchsuche SharePoint" if use_copilot else "💭 AI denkt nach"
-                    thinking_placeholder.markdown(f'<div class="thinking-indicator"><span class="thinking-dots">{thinking_msg}</span></div>', unsafe_allow_html=True)
-                    
-                    # **MODIFIED: Use Copilot Studio if available, else Azure OpenAI**
-                    try:
-                        if use_copilot:
-                            # **NEW: Send to Copilot Studio**
-                            # Add file context if needed
-                            if st.session_state.document_store:
-                                file_list = ', '.join(st.session_state.document_store.keys())
-                                full_prompt = f"{prompt}\n\n[Zusätzliche Dateien: {file_list}]"
-                            else:
-                                full_prompt = prompt
-                            
-                            response = st.session_state.copilot_client.send_message(full_prompt)
-                        else:
-                            # **EXISTING: Azure OpenAI fallback**
-                            context_parts = []
-                            if st.session_state.document_store:
-                                library_context = "\n\n".join([
-                                    f"=== DOCUMENT: {name} ===\n{content[:5000]}" 
-                                    for name, content in st.session_state.document_store.items()
-                                ])
-                                context_parts.append(library_context)
-                            
-                            if context_parts:
-                                full_context = "\n\n".join(context_parts)
-                                system_content = f"""You are JKM AI Assistant - a helpful AI assistant for tenders, procurement documents, and general tasks.
-
-You have access to the following documents:
-
-{full_context}
-
-INSTRUCTIONS:
-- Analyze and answer questions based on the provided documents
-- Extract specific information, identify empty fields, requirements, deadlines, etc.
-- Always respond in German when asked in German, otherwise in English
-- Be precise, professional, and helpful
-- When analyzing PDFs: Look for specific sections, fields, tables, and requirements
-- Summarize key information clearly"""
-                            else:
-                                system_content = """You are JKM AI Assistant - a helpful AI assistant for general questions and tasks.
-
-INSTRUCTIONS:
-- Answer general questions helpfully and precisely
-- Always respond in German when asked in German, otherwise in English
-- Be professional and friendly
-- For procurement/tender questions: If documents are uploaded, analyze them in detail"""
-                            
-                            system_message = {"role": "system", "content": system_content}
-                            api_messages = [system_message] + [
-                                {"role": m["role"], "content": m["content"]}
-                                for m in st.session_state.chat_messages
-                            ]
-                            
-                            stream = get_azure_chatbot_response(
-                                api_messages, 
-                                azure_endpoint, 
-                                azure_key, 
-                                deployment_name
-                            )
-                            
-                            response = ""
-                            for chunk in stream:
-                                if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
-                                    if hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
-                                        if chunk.choices[0].delta.content:
-                                            response += chunk.choices[0].delta.content
-                        
-                        # Display response
-                        thinking_placeholder.empty()
-                        st.markdown(response)
-                        st.session_state.chat_messages.append({"role": "assistant", "content": response})
-                        
-                    except Exception as e:
-                        thinking_placeholder.empty()
-                        st.error(f"❌ Error: {str(e)}")
-                        st.info("Please check your configuration in secrets.toml")
-
-if __name__ == "__main__":
-    main()
-
+    with open(json_file, "w", encoding="utf-8") as
