@@ -61,9 +61,10 @@ def get_power_platform_token():
     result = msal_app.acquire_token_for_client(scopes=POWER_PLATFORM_SCOPE)
     
     if "access_token" in result:
+        print(f"✅ Got Power Platform token (length: {len(result['access_token'])})")
         return result["access_token"]
     else:
-        print(f"Failed to get Power Platform token: {result.get('error_description')}")
+        print(f"❌ Failed to get Power Platform token: {result.get('error_description')}")
         return None
 
 def login_button():
@@ -155,38 +156,163 @@ def auth_flow():
         st.stop()
     return True
 
-with tab2:
-    with st.sidebar:
-        azure_endpoint = get_secret("AZURE_ENDPOINT", "")
-        azure_key = get_secret("AZURE_API_KEY", "")
-        deployment_name = get_secret("DEPLOYMENT_NAME", "gpt-4o-mini")
+# ------------------- COPILOT STUDIO CLIENT WITH DEBUGGING -------------------
+class CopilotStudioM365Client:
+    """Copilot Studio client with detailed debugging"""
+    def __init__(self, endpoint_url, power_platform_token):
+        self.base_endpoint = endpoint_url.split('?')[0]
+        self.power_platform_token = power_platform_token
+        self.conversation_id = None
+        self.watermark = None
+        self.last_error = None
         
-        st.markdown("## 🔑 Configuration")
+    def start_conversation(self):
+        headers = {
+            "Authorization": f"Bearer {self.power_platform_token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
         
-        if COPILOT_STUDIO_ENDPOINT:
-            st.success("✅ Copilot Studio (SharePoint)")
-            st.info("🔗 M365 Agents SDK")
+        try:
+            print(f"\n{'='*60}")
+            print(f"DEBUG: Starting conversation")
+            print(f"DEBUG: Endpoint: {self.base_endpoint}")
+            print(f"DEBUG: Token (first 20 chars): {self.power_platform_token[:20]}...")
+            print(f"DEBUG: Token length: {len(self.power_platform_token)}")
             
-            # ADD THIS DEBUG SECTION
-            with st.expander("🔍 Debug Info", expanded=False):
-                st.write("**Endpoint:**")
-                st.code(COPILOT_STUDIO_ENDPOINT, language="text")
+            response = requests.post(
+                self.base_endpoint,
+                headers=headers,
+                json={},
+                timeout=30
+            )
+            
+            print(f"DEBUG: Response Status: {response.status_code}")
+            print(f"DEBUG: Response Headers: {dict(response.headers)}")
+            print(f"DEBUG: Response Body: {response.text[:500]}")
+            print(f"{'='*60}\n")
+            
+            if response.status_code in [200, 201]:
+                data = response.json()
+                self.conversation_id = data.get("id") or data.get("conversationId")
+                print(f"✅ SUCCESS: Conversation ID: {self.conversation_id}")
+                return True
+            else:
+                self.last_error = {
+                    "status": response.status_code,
+                    "body": response.text,
+                    "headers": dict(response.headers)
+                }
+                print(f"❌ FAILED: {response.status_code}")
+                print(f"ERROR DETAILS: {response.text}")
+                return False
                 
-                pp_token = st.session_state.get("power_platform_token", "")
-                if pp_token:
-                    st.write("**Power Platform Token Status:**")
-                    st.success(f"✅ Token exists ({len(pp_token)} chars)")
-                    st.code(f"Token preview: {pp_token[:30]}...", language="text")
-                else:
-                    st.error("❌ No Power Platform token found!")
-                    st.info("Try logging out and back in")
-                
-                if st.button("🔄 Refresh Tokens"):
-                    st.session_state.clear()
-                    st.rerun()
+        except Exception as e:
+            print(f"❌ EXCEPTION: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            self.last_error = {"exception": str(e)}
+            return False
+    
+    def get_error_details(self):
+        """Return formatted error details"""
+        if not self.last_error:
+            return "No error details available"
         
-        # ... rest of your sidebar code ...
-
+        error_msg = "**🔍 Debug Information:**\n\n"
+        
+        if "status" in self.last_error:
+            error_msg += f"**Status Code:** {self.last_error['status']}\n\n"
+            error_msg += f"**Response:**\n``````\n\n"
+        
+        if "exception" in self.last_error:
+            error_msg += f"**Exception:** {self.last_error['exception']}\n\n"
+        
+        error_msg += "**📋 Troubleshooting Steps:**\n\n"
+        error_msg += "1️⃣ Check terminal/console for DEBUG output\n"
+        error_msg += "2️⃣ Verify COPILOT_STUDIO_ENDPOINT is correct\n"
+        error_msg += "3️⃣ Ensure agent is published in Copilot Studio\n"
+        error_msg += "4️⃣ Check Azure App has Power Platform API permissions\n"
+        error_msg += "5️⃣ Try logging out and back in\n"
+        
+        return error_msg
+    
+    def send_message(self, message):
+        if not self.conversation_id:
+            if not self.start_conversation():
+                return f"❌ Konnte keine Verbindung herstellen.\n\n{self.get_error_details()}"
+        
+        headers = {
+            "Authorization": f"Bearer {self.power_platform_token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        
+        user_id = f"user_{abs(hash(self.power_platform_token)) % 100000}"
+        
+        activity = {
+            "type": "message",
+            "text": message,
+            "from": {"id": user_id, "name": "User"},
+            "channelId": "directline",
+            "locale": "de-DE"
+        }
+        
+        try:
+            activity_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
+            
+            print(f"DEBUG: Sending message to: {activity_url}")
+            print(f"DEBUG: Message: {message[:100]}")
+            
+            response = requests.post(activity_url, headers=headers, json=activity, timeout=30)
+            
+            print(f"DEBUG: Send response status: {response.status_code}")
+            
+            if response.status_code in [200, 201, 202]:
+                return self.get_response()
+            else:
+                return f"❌ Fehler beim Senden: {response.status_code}\n\n``````"
+        except Exception as e:
+            return f"❌ Fehler: {str(e)}"
+    
+    def get_response(self, max_attempts=25, delay=1.5):
+        headers = {
+            "Authorization": f"Bearer {self.power_platform_token}",
+            "Accept": "application/json"
+        }
+        
+        user_id = f"user_{abs(hash(self.power_platform_token)) % 100000}"
+        
+        for attempt in range(max_attempts):
+            time.sleep(delay)
+            
+            try:
+                activities_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
+                if self.watermark:
+                    activities_url += f"?watermark={self.watermark}"
+                
+                response = requests.get(activities_url, headers=headers, timeout=30)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    activities = data.get("activities", [])
+                    self.watermark = data.get("watermark")
+                    
+                    print(f"DEBUG: Poll attempt {attempt+1}/{max_attempts}, {len(activities)} activities")
+                    
+                    for activity in reversed(activities):
+                        if activity.get("type") == "message":
+                            from_id = activity.get("from", {}).get("id", "")
+                            if from_id != user_id:
+                                text = activity.get("text", "")
+                                if text and text.strip():
+                                    print(f"✅ Got response: {text[:100]}")
+                                    return text
+            except Exception as e:
+                print(f"Poll error: {e}")
+                continue
+        
+        return "⏱️ Antwort dauert länger. Bitte erneut versuchen."
 
 # ---------------- TED SCRAPER FUNCTIONS ----------------
 def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_file):
@@ -822,6 +948,25 @@ def main():
             if COPILOT_STUDIO_ENDPOINT:
                 st.success("✅ Copilot Studio (SharePoint)")
                 st.info("🔗 M365 Agents SDK")
+                
+                # DEBUG PANEL
+                with st.expander("🔍 Debug Info", expanded=False):
+                    st.write("**Endpoint:**")
+                    st.code(COPILOT_STUDIO_ENDPOINT, language="text")
+                    
+                    pp_token = st.session_state.get("power_platform_token", "")
+                    if pp_token:
+                        st.write("**Power Platform Token:**")
+                        st.success(f"✅ Token exists ({len(pp_token)} chars)")
+                        st.code(f"{pp_token[:30]}...", language="text")
+                    else:
+                        st.error("❌ No Power Platform token!")
+                        st.info("Try logging out and back in")
+                    
+                    if st.button("🔄 Refresh Tokens"):
+                        st.session_state.clear()
+                        st.rerun()
+                        
             elif azure_endpoint and azure_key:
                 st.success("✅ Azure AI Fallback")
                 st.info(f"🤖 {deployment_name}")
@@ -1045,5 +1190,3 @@ INSTRUCTIONS:
 
 if __name__ == "__main__":
     main()
-
-
