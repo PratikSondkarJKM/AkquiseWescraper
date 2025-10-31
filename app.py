@@ -99,7 +99,6 @@ def auth_flow():
         login_button()
         st.stop()
 
-# =============== COPILOT CLIENT ===============
 class CopilotStudioClient:
     """Uses the user's Microsoft token to connect to Copilot Studio agent"""
     def __init__(self, endpoint_url, user_token):
@@ -108,115 +107,156 @@ class CopilotStudioClient:
         self.conversation_id = None
         self.watermark = None
         self.debug_log = []
+        self.last_error = None
         
     def log(self, msg):
         self.debug_log.append(msg)
+        print(f"[DEBUG] {msg}")  # Also print to console
         
     def get_debug(self):
         if not self.debug_log:
-            return ""
-        return "\n\n**🔍 Debug:**\n``````"
+            return "\n\n**Debug:** No logs captured"
+        return "\n\n**🔍 Debug Log:**\n``````"
         
     def start_conversation(self):
-        self.debug_log = []
-        headers = {
-            "Authorization": f"Bearer {self.user_token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }
-        
         try:
-            self.log(f"Creating conversation...")
-            response = requests.post(self.base_endpoint, headers=headers, json={}, timeout=30)
-            self.log(f"Status: {response.status_code}")
+            self.debug_log = []  # Clear previous logs
+            self.log("📌 Starting conversation...")
+            
+            headers = {
+                "Authorization": f"Bearer {self.user_token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+            
+            self.log(f"🔗 Endpoint: {self.base_endpoint[:80]}...")
+            self.log(f"📋 Token length: {len(self.user_token)}")
+            
+            response = requests.post(
+                self.base_endpoint, 
+                headers=headers, 
+                json={}, 
+                timeout=30
+            )
+            
+            self.log(f"📡 Response: {response.status_code}")
             
             if response.status_code in [200, 201]:
                 data = response.json()
                 self.conversation_id = data.get("id") or data.get("conversationId")
-                self.log(f"Conv ID: {self.conversation_id}")
+                self.log(f"✅ Conversation ID: {self.conversation_id[:20]}...")
                 return True
             else:
-                self.log(f"Failed: {response.text[:200]}")
+                error_text = response.text[:200]
+                self.log(f"❌ Error: {response.status_code}")
+                self.log(f"Response: {error_text}")
+                self.last_error = response.text
                 return False
+                
         except Exception as e:
-            self.log(f"Exception: {str(e)}")
+            self.log(f"❌ Exception: {str(e)}")
+            self.last_error = str(e)
             return False
     
     def send_message(self, message):
-        if not self.conversation_id:
-            if not self.start_conversation():
-                return f"❌ Connection failed{self.get_debug()}"
-        
-        headers = {
-            "Authorization": f"Bearer {self.user_token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }
-        
-        user_id = f"user_{abs(hash(self.user_token)) % 100000}"
-        payload = {
-            "type": "message",
-            "text": message,
-            "from": {"id": user_id, "name": "User"},
-            "locale": "de-DE"
-        }
-        
         try:
+            if not self.conversation_id:
+                if not self.start_conversation():
+                    error_msg = f"❌ Konnte Konversation nicht starten.{self.get_debug()}"
+                    return error_msg
+            
+            headers = {
+                "Authorization": f"Bearer {self.user_token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+            
+            user_id = f"user_{abs(hash(self.user_token)) % 100000}"
+            payload = {
+                "type": "message",
+                "text": message,
+                "from": {"id": user_id, "name": "User"},
+                "locale": "de-DE"
+            }
+            
+            # Build URL correctly
             if '?' in self.base_endpoint:
                 base_url, query = self.base_endpoint.split('?', 1)
                 url = f"{base_url}/{self.conversation_id}/activities?{query}"
             else:
                 url = f"{self.base_endpoint}/{self.conversation_id}/activities"
             
+            self.log(f"📤 Sending message...")
             response = requests.post(url, headers=headers, json=payload, timeout=30)
-            self.log(f"Send: {response.status_code}")
+            self.log(f"📡 Send status: {response.status_code}")
             
             if response.status_code in [200, 201, 202]:
                 return self.get_response()
             else:
-                return f"❌ Error: {response.status_code}{self.get_debug()}"
+                error_msg = f"❌ Senden fehlgeschlagen: {response.status_code}{self.get_debug()}"
+                return error_msg
+                
         except Exception as e:
-            return f"❌ Exception: {str(e)}{self.get_debug()}"
+            error_msg = f"❌ Exception beim Senden: {str(e)}{self.get_debug()}"
+            return error_msg
     
     def get_response(self, max_attempts=20, delay=1.5):
-        headers = {
-            "Authorization": f"Bearer {self.user_token}",
-            "Accept": "application/json"
-        }
-        user_id = f"user_{abs(hash(self.user_token)) % 100000}"
-        
-        for attempt in range(max_attempts):
-            time.sleep(delay)
-            try:
-                if '?' in self.base_endpoint:
-                    base_url, query = self.base_endpoint.split('?', 1)
-                    url = f"{base_url}/{self.conversation_id}/activities?{query}"
-                else:
-                    url = f"{self.base_endpoint}/{self.conversation_id}/activities"
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.user_token}",
+                "Accept": "application/json"
+            }
+            
+            user_id = f"user_{abs(hash(self.user_token)) % 100000}"
+            
+            self.log(f"📥 Polling for response ({max_attempts} attempts)...")
+            
+            for attempt in range(max_attempts):
+                time.sleep(delay)
                 
-                if self.watermark:
-                    url += f"&watermark={self.watermark}" if '?' in url else f"?watermark={self.watermark}"
-                
-                response = requests.get(url, headers=headers, timeout=30)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    activities = data.get("activities", [])
-                    self.watermark = data.get("watermark")
-                    self.log(f"Poll {attempt+1}: {len(activities)} activities")
+                try:
+                    # Build URL correctly
+                    if '?' in self.base_endpoint:
+                        base_url, query = self.base_endpoint.split('?', 1)
+                        url = f"{base_url}/{self.conversation_id}/activities?{query}"
+                    else:
+                        url = f"{self.base_endpoint}/{self.conversation_id}/activities"
                     
-                    for activity in reversed(activities):
-                        if activity.get("type") == "message":
-                            from_id = activity.get("from", {}).get("id", "")
-                            if from_id != user_id:
+                    if self.watermark:
+                        url += f"&watermark={self.watermark}" if '?' in url else f"?watermark={self.watermark}"
+                    
+                    response = requests.get(url, headers=headers, timeout=30)
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        activities = data.get("activities", [])
+                        self.watermark = data.get("watermark")
+                        
+                        self.log(f"Poll {attempt+1}: {len(activities)} activities")
+                        
+                        # Look for bot response
+                        for activity in reversed(activities):
+                            if activity.get("type") == "message":
+                                from_id = activity.get("from", {}).get("id", "")
+                                from_name = activity.get("from", {}).get("name", "")
                                 text = activity.get("text", "")
-                                if text and text.strip():
+                                
+                                # If it's not from the user and has text, it's a bot response
+                                if from_id != user_id and text and text.strip():
+                                    self.log(f"✅ Bot response from {from_name}")
                                     return text
-            except Exception as e:
-                self.log(f"Poll error: {e}")
-                continue
-        
-        return f"⏱️ Timeout{self.get_debug()}"
+                    else:
+                        self.log(f"Poll {attempt+1}: Error {response.status_code}")
+                        
+                except Exception as e:
+                    self.log(f"Poll {attempt+1}: Exception {str(e)[:50]}")
+                    continue
+            
+            return f"⏱️ Bot did not respond in time{self.get_debug()}"
+            
+        except Exception as e:
+            return f"❌ Error getting response: {str(e)}{self.get_debug()}"
+
 
 # =============== TED SCRAPER (keeping your existing code) ===============
 def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_file):
@@ -536,3 +576,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
