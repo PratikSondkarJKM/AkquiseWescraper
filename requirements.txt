@@ -2,6 +2,7 @@ altair==5.5.0
 annotated-types==0.7.0
 anyio==4.11.0
 attrs==25.4.0
+azure-core==1.36.0
 blinker==1.9.0
 cachetools==6.2.1
 certifi==2025.10.5
@@ -18,12 +19,17 @@ h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
 idna==3.11
+isodate==0.7.2
 Jinja2==3.1.6
 jiter==0.11.1
 jsonschema==4.25.1
 jsonschema-specifications==2025.9.1
 lxml==6.0.2
 MarkupSafe==3.0.3
+microsoft-agents-activity==0.5.2
+microsoft-agents-authentication-msal==0.5.2
+microsoft-agents-copilotstudio-client==0.5.2
+microsoft-agents-hosting-core==0.5.2
 msal==1.34.0
 narwhals==2.10.0
 numpy==2.3.4
@@ -42,6 +48,7 @@ PyJWT==2.10.1
 PyPDF2==3.0.1
 python-dateutil==2.9.0.post0
 python-docx==1.2.0
+python-dotenv==1.2.1
 pytz==2025.2
 referencing==0.37.0
 requests==2.32.5
