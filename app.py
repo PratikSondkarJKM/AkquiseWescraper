@@ -156,30 +156,34 @@ def auth_flow():
         st.stop()
     return True
 
-# ------------------- COPILOT STUDIO CLIENT WITH DEBUGGING -------------------
+# ------------------- COPILOT STUDIO CLIENT (FIXED FOR M365 AGENTS SDK) -------------------
 class CopilotStudioM365Client:
-    """Copilot Studio client with detailed debugging"""
+    """Copilot Studio M365 Agents SDK client - FIXED"""
     def __init__(self, endpoint_url, power_platform_token):
-        self.base_endpoint = endpoint_url.split('?')[0]
+        # The endpoint already includes /conversations
+        self.base_endpoint = endpoint_url.split('?')[0]  # Remove query params
         self.power_platform_token = power_platform_token
         self.conversation_id = None
         self.watermark = None
         self.last_error = None
         
     def start_conversation(self):
+        """Create conversation using M365 Agents SDK format"""
         headers = {
             "Authorization": f"Bearer {self.power_platform_token}",
             "Content-Type": "application/json",
-            "Accept": "application/json"
+            "Accept": "application/json",
+            "x-ms-client-request-id": f"streamlit-{int(time.time())}"
         }
         
+        # For M365 Agents SDK, we POST directly to /conversations
         try:
             print(f"\n{'='*60}")
-            print(f"DEBUG: Starting conversation")
-            print(f"DEBUG: Endpoint: {self.base_endpoint}")
-            print(f"DEBUG: Token (first 20 chars): {self.power_platform_token[:20]}...")
+            print(f"DEBUG: Creating conversation")
+            print(f"DEBUG: POST to: {self.base_endpoint}")
             print(f"DEBUG: Token length: {len(self.power_platform_token)}")
             
+            # Empty body for conversation creation
             response = requests.post(
                 self.base_endpoint,
                 headers=headers,
@@ -187,60 +191,65 @@ class CopilotStudioM365Client:
                 timeout=30
             )
             
-            print(f"DEBUG: Response Status: {response.status_code}")
-            print(f"DEBUG: Response Headers: {dict(response.headers)}")
-            print(f"DEBUG: Response Body: {response.text[:500]}")
+            print(f"DEBUG: Status: {response.status_code}")
+            print(f"DEBUG: Response: {response.text[:1000]}")
             print(f"{'='*60}\n")
             
             if response.status_code in [200, 201]:
                 data = response.json()
+                # The response should contain an 'id' field
                 self.conversation_id = data.get("id") or data.get("conversationId")
-                print(f"✅ SUCCESS: Conversation ID: {self.conversation_id}")
-                return True
+                
+                if self.conversation_id:
+                    print(f"✅ Conversation created: {self.conversation_id}")
+                    return True
+                else:
+                    print(f"❌ No conversation ID in response: {data}")
+                    self.last_error = {"status": 200, "body": "No conversation ID", "data": data}
+                    return False
             else:
-                self.last_error = {
-                    "status": response.status_code,
-                    "body": response.text,
-                    "headers": dict(response.headers)
-                }
-                print(f"❌ FAILED: {response.status_code}")
-                print(f"ERROR DETAILS: {response.text}")
+                self.last_error = {"status": response.status_code, "body": response.text}
                 return False
                 
         except Exception as e:
-            print(f"❌ EXCEPTION: {str(e)}")
+            print(f"❌ Exception: {e}")
             import traceback
             traceback.print_exc()
             self.last_error = {"exception": str(e)}
             return False
     
     def get_error_details(self):
-        """Return formatted error details"""
         if not self.last_error:
-            return "No error details available"
+            return "No error details"
         
-        error_msg = "**🔍 Debug Information:**\n\n"
+        msg = "**🔍 Debug Info:**\n\n"
         
         if "status" in self.last_error:
-            error_msg += f"**Status Code:** {self.last_error['status']}\n\n"
-            error_msg += f"**Response:**\n``````\n\n"
+            msg += f"**Status:** {self.last_error['status']}\n\n"
+            msg += f"**Response:**\n``````\n\n"
         
         if "exception" in self.last_error:
-            error_msg += f"**Exception:** {self.last_error['exception']}\n\n"
+            msg += f"**Exception:** {self.last_error['exception']}\n\n"
         
-        error_msg += "**📋 Troubleshooting Steps:**\n\n"
-        error_msg += "1️⃣ Check terminal/console for DEBUG output\n"
-        error_msg += "2️⃣ Verify COPILOT_STUDIO_ENDPOINT is correct\n"
-        error_msg += "3️⃣ Ensure agent is published in Copilot Studio\n"
-        error_msg += "4️⃣ Check Azure App has Power Platform API permissions\n"
-        error_msg += "5️⃣ Try logging out and back in\n"
+        if "data" in self.last_error:
+            msg += f"**Data:** {self.last_error['data']}\n\n"
         
-        return error_msg
+        msg += "**📋 Possible Issues:**\n\n"
+        
+        if self.last_error.get("status") == 400:
+            msg += "**400 Bad Request** - The API format might be wrong.\n\n"
+            msg += "**Try this:**\n"
+            msg += "1. Go to Copilot Studio → Your Agent\n"
+            msg += "2. Click Channels → Web app\n"
+            msg += "3. Make sure you copied the FULL connection string\n"
+            msg += "4. The string should end with `/conversations?api-version=...`\n\n"
+        
+        return msg
     
     def send_message(self, message):
         if not self.conversation_id:
             if not self.start_conversation():
-                return f"❌ Konnte keine Verbindung herstellen.\n\n{self.get_error_details()}"
+                return f"❌ Verbindung fehlgeschlagen\n\n{self.get_error_details()}"
         
         headers = {
             "Authorization": f"Bearer {self.power_platform_token}",
@@ -248,32 +257,44 @@ class CopilotStudioM365Client:
             "Accept": "application/json"
         }
         
+        # Build activity payload
         user_id = f"user_{abs(hash(self.power_platform_token)) % 100000}"
         
-        activity = {
+        payload = {
             "type": "message",
             "text": message,
-            "from": {"id": user_id, "name": "User"},
-            "channelId": "directline",
+            "from": {
+                "id": user_id,
+                "name": "User"
+            },
             "locale": "de-DE"
         }
         
         try:
-            activity_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
+            # POST to /conversations/{id}/activities
+            activities_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
             
-            print(f"DEBUG: Sending message to: {activity_url}")
-            print(f"DEBUG: Message: {message[:100]}")
+            print(f"DEBUG: Sending message")
+            print(f"DEBUG: POST to: {activities_url}")
+            print(f"DEBUG: Payload: {json.dumps(payload, indent=2)}")
             
-            response = requests.post(activity_url, headers=headers, json=activity, timeout=30)
+            response = requests.post(
+                activities_url,
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
             
-            print(f"DEBUG: Send response status: {response.status_code}")
+            print(f"DEBUG: Send status: {response.status_code}")
+            print(f"DEBUG: Send response: {response.text[:500]}")
             
             if response.status_code in [200, 201, 202]:
                 return self.get_response()
             else:
-                return f"❌ Fehler beim Senden: {response.status_code}\n\n``````"
+                return f"❌ Senden fehlgeschlagen: {response.status_code}\n\n``````"
+                
         except Exception as e:
-            return f"❌ Fehler: {str(e)}"
+            return f"❌ Exception: {str(e)}"
     
     def get_response(self, max_attempts=25, delay=1.5):
         headers = {
@@ -287,6 +308,7 @@ class CopilotStudioM365Client:
             time.sleep(delay)
             
             try:
+                # GET /conversations/{id}/activities
                 activities_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
                 if self.watermark:
                     activities_url += f"?watermark={self.watermark}"
@@ -298,21 +320,23 @@ class CopilotStudioM365Client:
                     activities = data.get("activities", [])
                     self.watermark = data.get("watermark")
                     
-                    print(f"DEBUG: Poll attempt {attempt+1}/{max_attempts}, {len(activities)} activities")
+                    print(f"DEBUG: Poll {attempt+1}/{max_attempts}: {len(activities)} activities")
                     
                     for activity in reversed(activities):
                         if activity.get("type") == "message":
                             from_id = activity.get("from", {}).get("id", "")
+                            # Skip if it's from the user
                             if from_id != user_id:
                                 text = activity.get("text", "")
                                 if text and text.strip():
-                                    print(f"✅ Got response: {text[:100]}")
+                                    print(f"✅ Bot response: {text[:100]}")
                                     return text
             except Exception as e:
                 print(f"Poll error: {e}")
                 continue
         
-        return "⏱️ Antwort dauert länger. Bitte erneut versuchen."
+        return "⏱️ Timeout - keine Antwort vom Agent"
+
 
 # ---------------- TED SCRAPER FUNCTIONS ----------------
 def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_file):
@@ -1190,3 +1214,4 @@ INSTRUCTIONS:
 
 if __name__ == "__main__":
     main()
+
