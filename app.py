@@ -32,6 +32,9 @@ SCOPE = ["https://graph.microsoft.com/User.Read"]
 
 API = "https://api.ted.europa.eu/v3/notices/search"
 
+# **NEW: Copilot Studio Connection String**
+COPILOT_STUDIO_ENDPOINT = get_secret("COPILOT_STUDIO_ENDPOINT", "")
+
 # Avatars - SWAPPED: Assistant = JKM Logo, User = Bot
 JKM_LOGO_URL = "https://www.xing.com/imagecache/public/scaled_original_image/eyJ1dWlkIjoiMGE2MTk2MTYtODI4Zi00MWZlLWEzN2ItMjczZGM2ODc5MGJmIiwiYXBwX2NvbnRleHQiOiJlbnRpdHktcGFnZXMiLCJtYXhfd2lkdGgiOjMyMCwibWF4X2hlaWdodCI6MzIwfQ?signature=a21e5c1393125a94fc9765898c25d73a064665dc3aacf872667c902d7ed9c3f9"
 BOT_AVATAR_URL = "https://raw.githubusercontent.com/PratikSondkarJKM/AkquiseWescraper/refs/heads/main/botavatar.svg"
@@ -145,7 +148,115 @@ def auth_flow():
         st.stop()
     return True
 
-# ---------------- TED SCRAPER FUNCTIONS (keeping all existing code) ----------------
+# **NEW: Copilot Studio M365 Client**
+class CopilotStudioM365Client:
+    """
+    Microsoft 365 Agents SDK client for Copilot Studio
+    """
+    def __init__(self, endpoint_url, user_token):
+        self.endpoint_url = endpoint_url
+        self.user_token = user_token
+        self.conversation_id = None
+        self.watermark = None
+        
+    def start_conversation(self):
+        """Create a new conversation"""
+        headers = {
+            "Authorization": f"Bearer {self.user_token}",
+            "Content-Type": "application/json"
+        }
+        
+        try:
+            response = requests.post(
+                self.endpoint_url,
+                headers=headers,
+                json={},
+                timeout=30
+            )
+            
+            if response.status_code in [200, 201]:
+                data = response.json()
+                self.conversation_id = data.get("id")
+                return True
+            else:
+                print(f"Failed: {response.status_code} - {response.text}")
+                return False
+        except Exception as e:
+            print(f"Error: {e}")
+            return False
+    
+    def send_message(self, message):
+        """Send message to agent"""
+        if not self.conversation_id:
+            if not self.start_conversation():
+                return "❌ Konnte keine Verbindung herstellen."
+        
+        headers = {
+            "Authorization": f"Bearer {self.user_token}",
+            "Content-Type": "application/json"
+        }
+        
+        activity = {
+            "type": "message",
+            "text": message,
+            "from": {
+                "id": f"user_{abs(hash(self.user_token)) % 100000}",
+                "name": "User"
+            },
+            "locale": "de-DE"
+        }
+        
+        try:
+            activity_url = f"{self.endpoint_url.split('?')[0]}/{self.conversation_id}/activities"
+            
+            response = requests.post(
+                activity_url,
+                headers=headers,
+                json=activity,
+                timeout=30
+            )
+            
+            if response.status_code in [200, 201]:
+                return self.get_response()
+            else:
+                return f"❌ Fehler: {response.status_code}"
+        except Exception as e:
+            return f"❌ Fehler: {str(e)}"
+    
+    def get_response(self, max_attempts=20, delay=1.5):
+        """Poll for response"""
+        headers = {
+            "Authorization": f"Bearer {self.user_token}"
+        }
+        
+        for attempt in range(max_attempts):
+            time.sleep(delay)
+            
+            try:
+                activities_url = f"{self.endpoint_url.split('?')[0]}/{self.conversation_id}/activities"
+                if self.watermark:
+                    activities_url += f"?watermark={self.watermark}"
+                
+                response = requests.get(activities_url, headers=headers, timeout=30)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    activities = data.get("activities", [])
+                    self.watermark = data.get("watermark")
+                    
+                    for activity in reversed(activities):
+                        if activity.get("type") == "message":
+                            from_data = activity.get("from", {})
+                            if from_data.get("id") != f"user_{abs(hash(self.user_token)) % 100000}":
+                                text = activity.get("text", "")
+                                if text and text.strip():
+                                    return text
+            except Exception as e:
+                continue
+        
+        return "⏱️ Antwort dauert länger. Bitte erneut versuchen."
+
+# ---------------- TED SCRAPER FUNCTIONS (ALL YOUR EXISTING CODE) ----------------
 def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_file):
     query = (
         f"(publication-date >={date_start}<={date_end}) AND (buyer-country IN ({buyer_country})) "
@@ -459,7 +570,7 @@ def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
     wb.save(output_excel)
     os.remove(temp_json)
 
-# ---------------- CHATBOT FUNCTIONS ----------------
+# ---------------- CHATBOT FUNCTIONS (ALL YOUR EXISTING CODE) ----------------
 def extract_text_from_pdf(file):
     try:
         pdf_reader = PyPDF2.PdfReader(file)
@@ -494,7 +605,6 @@ def extract_text_from_excel(file):
         else:  # xlsx or xls
             df = pd.read_excel(file)
         
-        # Convert DataFrame to readable text format
         text = f"Excel File: {file.name}\n"
         text += f"Rows: {len(df)}, Columns: {len(df.columns)}\n\n"
         text += f"Column Names: {', '.join(df.columns.tolist())}\n\n"
@@ -509,7 +619,6 @@ def extract_text_from_image(file):
     try:
         image = Image.open(file)
         
-        # Get image info
         text = f"Image File: {file.name}\n"
         text += f"Format: {image.format}\n"
         text += f"Size: {image.size[0]}x{image.size[1]} pixels\n"
@@ -755,7 +864,7 @@ def main():
     # Create tabs after authentication
     tab1, tab2 = st.tabs(["📄 TED Scraper", "💬 AI Assistant"])
     
-    # ============= TAB 1: TED SCRAPER =============
+    # ============= TAB 1: TED SCRAPER (YOUR EXISTING CODE) =============
     with tab1:
         st.header("📄 TED EU Notice Scraper")
         st.write("Download TED procurement notices to Excel (data is exported as a table for Power Automate).")
@@ -812,28 +921,27 @@ def main():
                     if os.path.exists(temp_excel.name):
                         os.remove(temp_excel.name)
     
-    # ============= TAB 2: CHATBOT =============
+    # ============= TAB 2: AI ASSISTANT (MODIFIED FOR COPILOT STUDIO) =============
     with tab2:
         # Sidebar for document library
         with st.sidebar:
-            # Get Azure credentials from secrets
+            # **MODIFIED: Check for Copilot Studio endpoint**
             azure_endpoint = get_secret("AZURE_ENDPOINT", "")
             azure_key = get_secret("AZURE_API_KEY", "")
             deployment_name = get_secret("DEPLOYMENT_NAME", "gpt-4o-mini")
-            api_version = "2024-08-01-preview"
             
             # Show configuration status
             st.markdown("## 🔑 Configuration")
-            if azure_endpoint and azure_key:
-                st.success("✅ Azure AI Connected")
-                try:
-                    masked_endpoint = azure_endpoint.replace("https://", "").split(".")[0]
-                    st.info(f"🔗 {masked_endpoint}")
-                except:
-                    st.info("🔗 Endpoint configured")
+            
+            # **NEW: Show Copilot Studio status**
+            if COPILOT_STUDIO_ENDPOINT:
+                st.success("✅ Copilot Studio (SharePoint)")
+                st.info("🔗 M365 Agents SDK")
+            elif azure_endpoint and azure_key:
+                st.success("✅ Azure AI Fallback")
                 st.info(f"🤖 {deployment_name}")
             else:
-                st.warning("⚠️ Azure credentials missing")
+                st.warning("⚠️ No AI configured")
             
             st.markdown("---")
             st.markdown("## 📚 Document Library")
@@ -877,42 +985,75 @@ def main():
             st.markdown("---")
             if st.button("🗑️ Clear Chat", use_container_width=True):
                 st.session_state.chat_messages = []
+                if "copilot_client" in st.session_state:
+                    del st.session_state.copilot_client
                 st.rerun()
         
         # Main chat interface
-        if not azure_endpoint or not azure_key:
-            st.error("❌ Azure AI Foundry credentials not configured!")
+        # **MODIFIED: Check for Copilot Studio first, fallback to Azure OpenAI**
+        use_copilot = bool(COPILOT_STUDIO_ENDPOINT)
+        
+        if not use_copilot and (not azure_endpoint or not azure_key):
+            st.error("❌ No AI configured!")
             st.info("""
             **Add to `.streamlit/secrets.toml`:**
             ```
+            # For Copilot Studio (SharePoint):
+            COPILOT_STUDIO_ENDPOINT = "https://...your-connection-string..."
+            
+            # OR for Azure OpenAI:
             AZURE_ENDPOINT = "https://your-resource.openai.azure.com"
             AZURE_API_KEY = "your-api-key"
             DEPLOYMENT_NAME = "gpt-4o-mini"
             ```
             """)
         else:
+            # **NEW: Initialize Copilot Studio client if endpoint exists**
+            if use_copilot and "copilot_client" not in st.session_state:
+                user_token = st.session_state.get("user_token", "")
+                st.session_state.copilot_client = CopilotStudioM365Client(
+                    COPILOT_STUDIO_ENDPOINT,
+                    user_token
+                )
+            
             # Initialize chat history
             if "chat_messages" not in st.session_state:
                 st.session_state.chat_messages = []
             
-            # Display welcome message - USING JKM LOGO FOR ASSISTANT
+            # Display welcome message
             if not st.session_state.chat_messages:
                 with st.chat_message("assistant", avatar=JKM_LOGO_URL):
-                    st.markdown("""
-                    👋 **Willkommen beim JKM AI Assistant!**
-                    
-                    Ich bin Ihr KI-Assistent und kann Ihnen bei verschiedenen Aufgaben helfen.
-                    
-                    **Möglichkeiten:**
-                    - 💬 Allgemeine Fragen beantworten
-                    - 📄 Dokumente analysieren (PDF, Word, TXT)
-                    - 🔍 Ausschreibungen prüfen
-                    - ✍️ Texte schreiben und übersetzen
-                    
-                    Stellen Sie mir einfach eine Frage!
-                    """)
+                    # **MODIFIED: Different message based on AI type**
+                    if use_copilot:
+                        st.markdown("""
+                        👋 **Willkommen beim JKM AI Assistant!**
+                        
+                        Ich bin mit Ihrem SharePoint verbunden und kann auf Unternehmensdokumente zugreifen.
+                        
+                        **Möglichkeiten:**
+                        - 💬 SharePoint-Dokumente durchsuchen
+                        - 📄 Zusätzliche Dateien analysieren
+                        - 🔍 Ausschreibungen prüfen
+                        - ✍️ Dokumente erstellen
+                        
+                        Stellen Sie mir einfach eine Frage!
+                        """)
+                    else:
+                        st.markdown("""
+                        👋 **Willkommen beim JKM AI Assistant!**
+                        
+                        Ich bin Ihr KI-Assistent und kann Ihnen bei verschiedenen Aufgaben helfen.
+                        
+                        **Möglichkeiten:**
+                        - 💬 Allgemeine Fragen beantworten
+                        - 📄 Dokumente analysieren (PDF, Word, TXT)
+                        - 🔍 Ausschreibungen prüfen
+                        - ✍️ Texte schreiben und übersetzen
+                        
+                        Stellen Sie mir einfach eine Frage!
+                        """)
             
-            # Display chat history - SWAPPED AVATARS
+            # Display chat history
             for message in st.session_state.chat_messages:
                 avatar = JKM_LOGO_URL if message["role"] == "assistant" else BOT_AVATAR_URL
                 with st.chat_message(message["role"], avatar=avatar):
@@ -933,35 +1074,53 @@ def main():
                         text = process_uploaded_file(quick_file)
                         if text:
                             st.session_state.document_store[quick_file.name] = text
+                            
+                            # **NEW: Send to Copilot Studio if using it**
+                            if use_copilot and "copilot_client" in st.session_state:
+                                file_msg = f"Datei hochgeladen: {quick_file.name}\n\n{text[:3000]}"
+                                st.session_state.copilot_client.send_message(file_msg)
+                            
                             st.success(f"✅ {quick_file.name} added")
                             st.rerun()
             
             # Chat input
             if prompt := st.chat_input("Message JKM AI Assistant..."):
-                # Prepare context
-                context_parts = []
-                
-                if st.session_state.document_store:
-                    library_context = "\n\n".join([
-                        f"=== DOCUMENT: {name} ===\n{content[:5000]}" 
-                        for name, content in st.session_state.document_store.items()
-                    ])
-                    context_parts.append(library_context)
-                
-                # Add user message with BOT AVATAR
+                # Add user message
                 st.session_state.chat_messages.append({"role": "user", "content": prompt})
                 with st.chat_message("user", avatar=BOT_AVATAR_URL):
                     st.markdown(prompt)
                 
-                # Show "thinking" indicator with JKM LOGO
+                # Show thinking indicator
                 with st.chat_message("assistant", avatar=JKM_LOGO_URL):
                     thinking_placeholder = st.empty()
-                    thinking_placeholder.markdown('<div class="thinking-indicator"><span class="thinking-dots">💭 AI denkt nach</span></div>', unsafe_allow_html=True)
+                    thinking_msg = "💭 Durchsuche SharePoint" if use_copilot else "💭 AI denkt nach"
+                    thinking_placeholder.markdown(f'<div class="thinking-indicator"><span class="thinking-dots">{thinking_msg}</span></div>', unsafe_allow_html=True)
                     
-                    # Prepare system message
-                    if context_parts:
-                        full_context = "\n\n".join(context_parts)
-                        system_content = f"""You are JKM AI Assistant - a helpful AI assistant for tenders, procurement documents, and general tasks.
+                    # **MODIFIED: Use Copilot Studio if available, else Azure OpenAI**
+                    try:
+                        if use_copilot:
+                            # **NEW: Send to Copilot Studio**
+                            # Add file context if needed
+                            if st.session_state.document_store:
+                                file_list = ', '.join(st.session_state.document_store.keys())
+                                full_prompt = f"{prompt}\n\n[Zusätzliche Dateien: {file_list}]"
+                            else:
+                                full_prompt = prompt
+                            
+                            response = st.session_state.copilot_client.send_message(full_prompt)
+                        else:
+                            # **EXISTING: Azure OpenAI fallback**
+                            context_parts = []
+                            if st.session_state.document_store:
+                                library_context = "\n\n".join([
+                                    f"=== DOCUMENT: {name} ===\n{content[:5000]}" 
+                                    for name, content in st.session_state.document_store.items()
+                                ])
+                                context_parts.append(library_context)
+                            
+                            if context_parts:
+                                full_context = "\n\n".join(context_parts)
+                                system_content = f"""You are JKM AI Assistant - a helpful AI assistant for tenders, procurement documents, and general tasks.
 
 You have access to the following documents:
 
@@ -974,54 +1133,44 @@ INSTRUCTIONS:
 - Be precise, professional, and helpful
 - When analyzing PDFs: Look for specific sections, fields, tables, and requirements
 - Summarize key information clearly"""
-                    else:
-                        system_content = """You are JKM AI Assistant - a helpful AI assistant for general questions and tasks.
+                            else:
+                                system_content = """You are JKM AI Assistant - a helpful AI assistant for general questions and tasks.
 
 INSTRUCTIONS:
 - Answer general questions helpfully and precisely
 - Always respond in German when asked in German, otherwise in English
 - Be professional and friendly
 - For procurement/tender questions: If documents are uploaded, analyze them in detail"""
-                    
-                    system_message = {"role": "system", "content": system_content}
-                    
-                    api_messages = [system_message] + [
-                        {"role": m["role"], "content": m["content"]}
-                        for m in st.session_state.chat_messages
-                    ]
-                    
-                    # Get response
-                    try:
-                        stream = get_azure_chatbot_response(
-                            api_messages, 
-                            azure_endpoint, 
-                            azure_key, 
-                            deployment_name,
-                            api_version
-                        )
+                            
+                            system_message = {"role": "system", "content": system_content}
+                            api_messages = [system_message] + [
+                                {"role": m["role"], "content": m["content"]}
+                                for m in st.session_state.chat_messages
+                            ]
+                            
+                            stream = get_azure_chatbot_response(
+                                api_messages, 
+                                azure_endpoint, 
+                                azure_key, 
+                                deployment_name
+                            )
+                            
+                            response = ""
+                            for chunk in stream:
+                                if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
+                                    if hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
+                                        if chunk.choices[0].delta.content:
+                                            response += chunk.choices[0].delta.content
                         
-                        # Collect full response with error handling
-                        response_text = ""
-                        for chunk in stream:
-                            if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
-                                if hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
-                                    if chunk.choices[0].delta.content:
-                                        response_text += chunk.choices[0].delta.content
-                        
-                        # Clear thinking indicator and show response
+                        # Display response
                         thinking_placeholder.empty()
-                        st.markdown(response_text)
-                        
-                        st.session_state.chat_messages.append({"role": "assistant", "content": response_text})
+                        st.markdown(response)
+                        st.session_state.chat_messages.append({"role": "assistant", "content": response})
                         
                     except Exception as e:
                         thinking_placeholder.empty()
                         st.error(f"❌ Error: {str(e)}")
-                        st.info("Please check your Azure configuration in secrets.toml")
+                        st.info("Please check your configuration in secrets.toml")
 
 if __name__ == "__main__":
     main()
-
-
-
-
