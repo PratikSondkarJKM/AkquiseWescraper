@@ -187,6 +187,7 @@ with tab2:
         
         # ... rest of your sidebar code ...
 
+
 # ---------------- TED SCRAPER FUNCTIONS ----------------
 def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_file):
     query = (
@@ -1044,4 +1045,5 @@ INSTRUCTIONS:
 
 if __name__ == "__main__":
     main()
+
 
