@@ -148,13 +148,14 @@ def auth_flow():
         st.stop()
     return True
 
-# **NEW: Copilot Studio M365 Client**
+# **UPDATED: Copilot Studio M365 Client with better error handling**
 class CopilotStudioM365Client:
     """
     Microsoft 365 Agents SDK client for Copilot Studio
     """
     def __init__(self, endpoint_url, user_token):
-        self.endpoint_url = endpoint_url
+        # Parse the endpoint URL
+        self.base_endpoint = endpoint_url.split('?')[0]  # Remove query params
         self.user_token = user_token
         self.conversation_id = None
         self.watermark = None
@@ -163,51 +164,71 @@ class CopilotStudioM365Client:
         """Create a new conversation"""
         headers = {
             "Authorization": f"Bearer {self.user_token}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Accept": "application/json"
         }
         
         try:
+            # POST to create conversation
+            print(f"DEBUG: Calling {self.base_endpoint}")
+            print(f"DEBUG: Token length: {len(self.user_token)}")
+            
             response = requests.post(
-                self.endpoint_url,
+                self.base_endpoint,
                 headers=headers,
                 json={},
                 timeout=30
             )
             
+            print(f"DEBUG: Response status: {response.status_code}")
+            print(f"DEBUG: Response text: {response.text[:500]}")
+            
             if response.status_code in [200, 201]:
                 data = response.json()
-                self.conversation_id = data.get("id")
+                self.conversation_id = data.get("id") or data.get("conversationId")
+                print(f"DEBUG: Conversation ID: {self.conversation_id}")
                 return True
             else:
                 print(f"Failed: {response.status_code} - {response.text}")
                 return False
+                
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"Exception: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def send_message(self, message):
         """Send message to agent"""
         if not self.conversation_id:
             if not self.start_conversation():
-                return "❌ Konnte keine Verbindung herstellen."
+                return "❌ Konnte keine Verbindung herstellen. Bitte prüfen Sie:\n\n1. COPILOT_STUDIO_ENDPOINT ist korrekt\n2. Ihr Microsoft-Login ist aktiv\n3. Der Agent ist in Copilot Studio veröffentlicht"
         
         headers = {
             "Authorization": f"Bearer {self.user_token}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Accept": "application/json"
         }
+        
+        # Build activity
+        user_id = f"user_{abs(hash(self.user_token)) % 100000}"
         
         activity = {
             "type": "message",
             "text": message,
             "from": {
-                "id": f"user_{abs(hash(self.user_token)) % 100000}",
+                "id": user_id,
                 "name": "User"
             },
+            "channelId": "directline",
             "locale": "de-DE"
         }
         
         try:
-            activity_url = f"{self.endpoint_url.split('?')[0]}/{self.conversation_id}/activities"
+            # POST activity to conversation
+            activity_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
+            
+            print(f"DEBUG: Sending to {activity_url}")
             
             response = requests.post(
                 activity_url,
@@ -216,24 +237,34 @@ class CopilotStudioM365Client:
                 timeout=30
             )
             
-            if response.status_code in [200, 201]:
+            print(f"DEBUG: Send response: {response.status_code}")
+            
+            if response.status_code in [200, 201, 202]:
+                # Poll for response
                 return self.get_response()
             else:
-                return f"❌ Fehler: {response.status_code}"
+                print(f"Send failed: {response.status_code} - {response.text}")
+                return f"❌ Fehler beim Senden: {response.status_code}"
+                
         except Exception as e:
+            print(f"Send exception: {e}")
+            import traceback
+            traceback.print_exc()
             return f"❌ Fehler: {str(e)}"
     
-    def get_response(self, max_attempts=20, delay=1.5):
+    def get_response(self, max_attempts=25, delay=1.5):
         """Poll for response"""
         headers = {
-            "Authorization": f"Bearer {self.user_token}"
+            "Authorization": f"Bearer {self.user_token}",
+            "Accept": "application/json"
         }
         
         for attempt in range(max_attempts):
             time.sleep(delay)
             
             try:
-                activities_url = f"{self.endpoint_url.split('?')[0]}/{self.conversation_id}/activities"
+                # GET activities from conversation
+                activities_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
                 if self.watermark:
                     activities_url += f"?watermark={self.watermark}"
                 
@@ -244,17 +275,27 @@ class CopilotStudioM365Client:
                     activities = data.get("activities", [])
                     self.watermark = data.get("watermark")
                     
+                    print(f"DEBUG: Attempt {attempt+1}, got {len(activities)} activities")
+                    
+                    # Look for bot responses
+                    user_id = f"user_{abs(hash(self.user_token)) % 100000}"
+                    
                     for activity in reversed(activities):
                         if activity.get("type") == "message":
-                            from_data = activity.get("from", {})
-                            if from_data.get("id") != f"user_{abs(hash(self.user_token)) % 100000}":
+                            from_id = activity.get("from", {}).get("id", "")
+                            
+                            # Check if it's NOT from the user (must be from bot)
+                            if from_id != user_id:
                                 text = activity.get("text", "")
                                 if text and text.strip():
+                                    print(f"DEBUG: Found bot response: {text[:100]}")
                                     return text
+                
             except Exception as e:
+                print(f"Poll error (attempt {attempt + 1}): {e}")
                 continue
         
-        return "⏱️ Antwort dauert länger. Bitte erneut versuchen."
+        return "⏱️ Die Antwort dauert länger als erwartet. Mögliche Gründe:\n\n1. Der Agent verarbeitet noch Ihre Anfrage\n2. SharePoint-Zugriff dauert länger\n3. Netzwerkprobleme\n\nBitte versuchen Sie es erneut."
 
 # ---------------- TED SCRAPER FUNCTIONS (ALL YOUR EXISTING CODE) ----------------
 def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_file):
@@ -1174,3 +1215,4 @@ INSTRUCTIONS:
 
 if __name__ == "__main__":
     main()
+
