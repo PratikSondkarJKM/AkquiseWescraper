@@ -137,11 +137,12 @@ def auth_flow():
         st.stop()
     return True
 
-# ------------------- COPILOT STUDIO CLIENT (SIMPLIFIED) -------------------
+# ------------------- COPILOT STUDIO CLIENT (FIXED) -------------------
 class CopilotStudioM365Client:
-    """Simplified Copilot Studio client using user's Microsoft token"""
+    """Copilot Studio client - FIXED to preserve api-version"""
     def __init__(self, endpoint_url, user_token):
-        self.base_endpoint = endpoint_url.split('?')[0]
+        # Keep the FULL endpoint with api-version
+        self.base_endpoint = endpoint_url
         self.user_token = user_token
         self.conversation_id = None
         self.watermark = None
@@ -168,10 +169,9 @@ class CopilotStudioM365Client:
         try:
             self.log(f"POST to: {self.base_endpoint}")
             self.log(f"Token length: {len(self.user_token)}")
-            self.log(f"Token preview: {self.user_token[:30]}...")
             
             response = requests.post(
-                self.base_endpoint,
+                self.base_endpoint,  # Use full URL with api-version
                 headers=headers,
                 json={},
                 timeout=30
@@ -188,24 +188,20 @@ class CopilotStudioM365Client:
                     self.log(f"✅ Conversation ID: {self.conversation_id}")
                     return True
                 else:
-                    self.log(f"❌ No conversation ID in response")
+                    self.log(f"❌ No conversation ID")
                     return False
             else:
-                self.log(f"❌ Failed with status {response.status_code}")
+                self.log(f"❌ Failed: {response.status_code}")
                 return False
                 
         except Exception as e:
             self.log(f"❌ Exception: {str(e)}")
-            import traceback
-            self.log(traceback.format_exc())
             return False
     
     def send_message(self, message):
         if not self.conversation_id:
             if not self.start_conversation():
-                error_msg = f"❌ Konnte keine Verbindung herstellen."
-                error_msg += self.get_debug_output()
-                return error_msg
+                return f"❌ Verbindung fehlgeschlagen{self.get_debug_output()}"
         
         headers = {
             "Authorization": f"Bearer {self.user_token}",
@@ -223,7 +219,12 @@ class CopilotStudioM365Client:
         }
         
         try:
-            activities_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
+            # Build activities URL - add conversation ID before query params
+            if '?' in self.base_endpoint:
+                base_url, query_params = self.base_endpoint.split('?', 1)
+                activities_url = f"{base_url}/{self.conversation_id}/activities?{query_params}"
+            else:
+                activities_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
             
             self.log(f"Sending to: {activities_url}")
             
@@ -239,7 +240,7 @@ class CopilotStudioM365Client:
             if response.status_code in [200, 201, 202]:
                 return self.get_response()
             else:
-                self.log(f"Send failed: {response.text[:500]}")
+                self.log(f"Failed: {response.text[:500]}")
                 return f"❌ Fehler: {response.status_code}{self.get_debug_output()}"
                 
         except Exception as e:
@@ -254,13 +255,24 @@ class CopilotStudioM365Client:
         
         user_id = f"user_{abs(hash(self.user_token)) % 100000}"
         
+        # Build activities URL with conversation ID
+        if '?' in self.base_endpoint:
+            base_url, query_params = self.base_endpoint.split('?', 1)
+            base_activities_url = f"{base_url}/{self.conversation_id}/activities?{query_params}"
+        else:
+            base_activities_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
+        
         for attempt in range(max_attempts):
             time.sleep(delay)
             
             try:
-                activities_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
+                activities_url = base_activities_url
                 if self.watermark:
-                    activities_url += f"?watermark={self.watermark}"
+                    # Add watermark to existing query params
+                    if '?' in activities_url:
+                        activities_url += f"&watermark={self.watermark}"
+                    else:
+                        activities_url += f"?watermark={self.watermark}"
                 
                 response = requests.get(activities_url, headers=headers, timeout=30)
                 
@@ -284,6 +296,7 @@ class CopilotStudioM365Client:
                 continue
         
         return f"⏱️ Timeout{self.get_debug_output()}"
+
 
 # ---------------- TED SCRAPER FUNCTIONS (keeping your existing code) ----------------
 def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_file):
@@ -1139,3 +1152,4 @@ INSTRUCTIONS:
 
 if __name__ == "__main__":
     main()
+
