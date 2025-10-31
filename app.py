@@ -29,7 +29,6 @@ REDIRECT_URI = get_secret("REDIRECT_URI", "http://localhost:8501")
 
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}" if TENANT_ID else ""
 SCOPE = ["https://graph.microsoft.com/User.Read"]
-POWER_PLATFORM_SCOPE = ["https://api.powerplatform.com/.default"]
 
 API = "https://api.ted.europa.eu/v3/notices/search"
 
@@ -54,18 +53,6 @@ def build_msal_app():
 def fetch_token(auth_code):
     msal_app = build_msal_app()
     return msal_app.acquire_token_by_authorization_code(auth_code, scopes=SCOPE, redirect_uri=REDIRECT_URI)
-
-def get_power_platform_token():
-    """Get token for Power Platform API"""
-    msal_app = build_msal_app()
-    result = msal_app.acquire_token_for_client(scopes=POWER_PLATFORM_SCOPE)
-    
-    if "access_token" in result:
-        print(f"✅ Got Power Platform token (length: {len(result['access_token'])})")
-        return result["access_token"]
-    else:
-        print(f"❌ Failed to get Power Platform token: {result.get('error_description')}")
-        return None
 
 def login_button():
     msal_app = build_msal_app()
@@ -140,12 +127,6 @@ def auth_flow():
         token_data = fetch_token(code)
         if "access_token" in token_data:
             st.session_state["user_token"] = token_data["access_token"]
-            
-            # Get Power Platform token
-            pp_token = get_power_platform_token()
-            if pp_token:
-                st.session_state["power_platform_token"] = pp_token
-            
             st.query_params.clear()
             st.rerun()
         else:
@@ -156,40 +137,38 @@ def auth_flow():
         st.stop()
     return True
 
-# ------------------- COPILOT STUDIO CLIENT WITH IN-APP DEBUGGING -------------------
+# ------------------- COPILOT STUDIO CLIENT (SIMPLIFIED) -------------------
 class CopilotStudioM365Client:
-    """Copilot Studio client with in-app debugging"""
-    def __init__(self, endpoint_url, power_platform_token):
+    """Simplified Copilot Studio client using user's Microsoft token"""
+    def __init__(self, endpoint_url, user_token):
         self.base_endpoint = endpoint_url.split('?')[0]
-        self.power_platform_token = power_platform_token
+        self.user_token = user_token
         self.conversation_id = None
         self.watermark = None
-        self.debug_log = []  # Store debug messages to show in chat
+        self.debug_log = []
         
     def log(self, msg):
-        """Add to debug log"""
         self.debug_log.append(msg)
-        print(msg)  # Still print for cloud logs
+        print(msg)
         
     def get_debug_output(self):
-        """Return formatted debug log"""
         if not self.debug_log:
             return ""
         return "\n\n**🔍 Debug Log:**\n``````"
         
     def start_conversation(self):
-        self.debug_log = []  # Clear previous logs
+        self.debug_log = []
         
         headers = {
-            "Authorization": f"Bearer {self.power_platform_token}",
+            "Authorization": f"Bearer {self.user_token}",
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
         
         try:
             self.log(f"POST to: {self.base_endpoint}")
-            self.log(f"Token length: {len(self.power_platform_token)}")
-            self.log(f"Token starts: {self.power_platform_token[:30]}...")
+            self.log(f"Token length: {len(self.user_token)}")
+            self.log(f"Token preview: {self.user_token[:30]}...")
             
             response = requests.post(
                 self.base_endpoint,
@@ -226,19 +205,15 @@ class CopilotStudioM365Client:
             if not self.start_conversation():
                 error_msg = f"❌ Konnte keine Verbindung herstellen."
                 error_msg += self.get_debug_output()
-                error_msg += "\n\n**💡 Nächste Schritte:**\n"
-                error_msg += "1. Überprüfen Sie den COPILOT_STUDIO_ENDPOINT in secrets.toml\n"
-                error_msg += "2. Stellen Sie sicher, dass der Agent veröffentlicht ist\n"
-                error_msg += "3. Prüfen Sie Azure App Permissions für Power Platform API\n"
                 return error_msg
         
         headers = {
-            "Authorization": f"Bearer {self.power_platform_token}",
+            "Authorization": f"Bearer {self.user_token}",
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
         
-        user_id = f"user_{abs(hash(self.power_platform_token)) % 100000}"
+        user_id = f"user_{abs(hash(self.user_token)) % 100000}"
         
         payload = {
             "type": "message",
@@ -250,7 +225,7 @@ class CopilotStudioM365Client:
         try:
             activities_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
             
-            self.log(f"Sending message to: {activities_url}")
+            self.log(f"Sending to: {activities_url}")
             
             response = requests.post(
                 activities_url,
@@ -265,19 +240,19 @@ class CopilotStudioM365Client:
                 return self.get_response()
             else:
                 self.log(f"Send failed: {response.text[:500]}")
-                return f"❌ Fehler beim Senden: {response.status_code}{self.get_debug_output()}"
+                return f"❌ Fehler: {response.status_code}{self.get_debug_output()}"
                 
         except Exception as e:
-            self.log(f"Send exception: {str(e)}")
+            self.log(f"Exception: {str(e)}")
             return f"❌ Exception: {str(e)}{self.get_debug_output()}"
     
     def get_response(self, max_attempts=25, delay=1.5):
         headers = {
-            "Authorization": f"Bearer {self.power_platform_token}",
+            "Authorization": f"Bearer {self.user_token}",
             "Accept": "application/json"
         }
         
-        user_id = f"user_{abs(hash(self.power_platform_token)) % 100000}"
+        user_id = f"user_{abs(hash(self.user_token)) % 100000}"
         
         for attempt in range(max_attempts):
             time.sleep(delay)
@@ -310,8 +285,7 @@ class CopilotStudioM365Client:
         
         return f"⏱️ Timeout{self.get_debug_output()}"
 
-
-# ---------------- TED SCRAPER FUNCTIONS ----------------
+# ---------------- TED SCRAPER FUNCTIONS (keeping your existing code) ----------------
 def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_file):
     query = (
         f"(publication-date >={date_start}<={date_end}) AND (buyer-country IN ({buyer_country})) "
@@ -944,23 +918,21 @@ def main():
             
             if COPILOT_STUDIO_ENDPOINT:
                 st.success("✅ Copilot Studio (SharePoint)")
-                st.info("🔗 M365 Agents SDK")
+                st.info("🔗 Using User Token")
                 
-                # DEBUG PANEL
                 with st.expander("🔍 Debug Info", expanded=False):
                     st.write("**Endpoint:**")
                     st.code(COPILOT_STUDIO_ENDPOINT, language="text")
                     
-                    pp_token = st.session_state.get("power_platform_token", "")
-                    if pp_token:
-                        st.write("**Power Platform Token:**")
-                        st.success(f"✅ Token exists ({len(pp_token)} chars)")
-                        st.code(f"{pp_token[:30]}...", language="text")
+                    user_token = st.session_state.get("user_token", "")
+                    if user_token:
+                        st.write("**User Token:**")
+                        st.success(f"✅ Token exists ({len(user_token)} chars)")
+                        st.code(f"{user_token[:30]}...", language="text")
                     else:
-                        st.error("❌ No Power Platform token!")
-                        st.info("Try logging out and back in")
+                        st.error("❌ No user token!")
                     
-                    if st.button("🔄 Refresh Tokens"):
+                    if st.button("🔄 Refresh"):
                         st.session_state.clear()
                         st.rerun()
                         
@@ -972,7 +944,7 @@ def main():
             
             st.markdown("---")
             st.markdown("## 📚 Document Library")
-            st.caption("Optional: Upload files for context")
+            st.caption("Optional: Upload files")
             
             if "document_store" not in st.session_state:
                 st.session_state.document_store = {}
@@ -982,7 +954,6 @@ def main():
                 type=['pdf', 'docx', 'txt', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg'],
                 accept_multiple_files=True,
                 key="library_uploader",
-                help="Upload PDFs, Word, Excel, or image files",
                 label_visibility="collapsed"
             )
             
@@ -1017,30 +988,20 @@ def main():
         
         if not use_copilot and (not azure_endpoint or not azure_key):
             st.error("❌ No AI configured!")
-            st.info("""
-            **Add to `.streamlit/secrets.toml`:**
-            ```
-            COPILOT_STUDIO_ENDPOINT = "https://...your-connection-string..."
-            
-            # OR for Azure OpenAI:
-            AZURE_ENDPOINT = "https://your-resource.openai.azure.com"
-            AZURE_API_KEY = "your-api-key"
-            DEPLOYMENT_NAME = "gpt-4o-mini"
-            ```
-            """)
         else:
+            # SIMPLIFIED: Use user token directly
             if use_copilot and "copilot_client" not in st.session_state:
-                pp_token = st.session_state.get("power_platform_token", "")
+                user_token = st.session_state.get("user_token", "")
                 
-                if not pp_token:
-                    st.error("❌ Power Platform Token fehlt. Bitte neu anmelden.")
+                if not user_token:
+                    st.error("❌ Token fehlt. Bitte neu anmelden.")
                     if st.button("Neu anmelden"):
                         st.session_state.clear()
                         st.rerun()
                 else:
                     st.session_state.copilot_client = CopilotStudioM365Client(
                         COPILOT_STUDIO_ENDPOINT,
-                        pp_token
+                        user_token  # Use user's Microsoft token directly!
                     )
             
             if "chat_messages" not in st.session_state:
@@ -1052,7 +1013,7 @@ def main():
                         st.markdown("""
                         👋 **Willkommen beim JKM AI Assistant!**
                         
-                        Ich bin mit Ihrem SharePoint verbunden und kann auf Unternehmensdokumente zugreifen.
+                        Ich bin mit Ihrem SharePoint verbunden.
                         
                         **Möglichkeiten:**
                         - 💬 SharePoint-Dokumente durchsuchen
@@ -1060,21 +1021,18 @@ def main():
                         - 🔍 Ausschreibungen prüfen
                         - ✍️ Dokumente erstellen
                         
-                        Stellen Sie mir einfach eine Frage!
+                        Stellen Sie mir eine Frage!
                         """)
                     else:
                         st.markdown("""
                         👋 **Willkommen beim JKM AI Assistant!**
                         
-                        Ich bin Ihr KI-Assistent und kann Ihnen bei verschiedenen Aufgaben helfen.
-                        
                         **Möglichkeiten:**
-                        - 💬 Allgemeine Fragen beantworten
-                        - 📄 Dokumente analysieren (PDF, Word, TXT)
+                        - 💬 Fragen beantworten
+                        - 📄 Dokumente analysieren
                         - 🔍 Ausschreibungen prüfen
-                        - ✍️ Texte schreiben und übersetzen
                         
-                        Stellen Sie mir einfach eine Frage!
+                        Stellen Sie mir eine Frage!
                         """)
             
             for message in st.session_state.chat_messages:
@@ -1084,10 +1042,9 @@ def main():
             
             st.markdown("---")
             quick_file = st.file_uploader(
-                "📎 Drag and drop file here or click to browse", 
+                "📎 Drag and drop file", 
                 type=['pdf', 'docx', 'txt', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg'],
-                key="quick_uploader",
-                help="Upload documents, Excel files, or images"
+                key="quick_uploader"
             )
             
             if quick_file:
@@ -1098,10 +1055,10 @@ def main():
                             st.session_state.document_store[quick_file.name] = text
                             
                             if use_copilot and "copilot_client" in st.session_state:
-                                file_msg = f"Datei hochgeladen: {quick_file.name}\n\n{text[:3000]}"
+                                file_msg = f"Datei: {quick_file.name}\n\n{text[:3000]}"
                                 st.session_state.copilot_client.send_message(file_msg)
                             
-                            st.success(f"✅ {quick_file.name} added")
+                            st.success(f"✅ {quick_file.name}")
                             st.rerun()
             
             if prompt := st.chat_input("Message JKM AI Assistant..."):
@@ -1118,7 +1075,7 @@ def main():
                         if use_copilot:
                             if st.session_state.document_store:
                                 file_list = ', '.join(st.session_state.document_store.keys())
-                                full_prompt = f"{prompt}\n\n[Zusätzliche Dateien: {file_list}]"
+                                full_prompt = f"{prompt}\n\n[Dateien: {file_list}]"
                             else:
                                 full_prompt = prompt
                             
@@ -1134,27 +1091,23 @@ def main():
                             
                             if context_parts:
                                 full_context = "\n\n".join(context_parts)
-                                system_content = f"""You are JKM AI Assistant - a helpful AI assistant for tenders, procurement documents, and general tasks.
+                                system_content = f"""You are JKM AI Assistant.
 
-You have access to the following documents:
+Documents:
 
 {full_context}
 
 INSTRUCTIONS:
-- Analyze and answer questions based on the provided documents
-- Extract specific information, identify empty fields, requirements, deadlines, etc.
-- Always respond in German when asked in German, otherwise in English
-- Be precise, professional, and helpful
-- When analyzing PDFs: Look for specific sections, fields, tables, and requirements
-- Summarize key information clearly"""
+- Analyze documents
+- Respond in German when asked in German
+- Be precise and helpful"""
                             else:
-                                system_content = """You are JKM AI Assistant - a helpful AI assistant for general questions and tasks.
+                                system_content = """You are JKM AI Assistant.
 
 INSTRUCTIONS:
-- Answer general questions helpfully and precisely
-- Always respond in German when asked in German, otherwise in English
-- Be professional and friendly
-- For procurement/tender questions: If documents are uploaded, analyze them in detail"""
+- Answer questions helpfully
+- Respond in German when asked in German
+- Be professional"""
                             
                             system_message = {"role": "system", "content": system_content}
                             api_messages = [system_message] + [
@@ -1183,9 +1136,6 @@ INSTRUCTIONS:
                     except Exception as e:
                         thinking_placeholder.empty()
                         st.error(f"❌ Error: {str(e)}")
-                        st.info("Please check your configuration in secrets.toml")
 
 if __name__ == "__main__":
     main()
-
-
