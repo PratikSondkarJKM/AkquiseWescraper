@@ -32,9 +32,7 @@ SCOPE = ["https://graph.microsoft.com/User.Read"]
 
 API = "https://api.ted.europa.eu/v3/notices/search"
 
-COPILOT_STUDIO_ENDPOINT = get_secret("COPILOT_STUDIO_ENDPOINT", "")
-
-# Avatars
+# Avatars - SWAPPED: Assistant = JKM Logo, User = Bot
 JKM_LOGO_URL = "https://www.xing.com/imagecache/public/scaled_original_image/eyJ1dWlkIjoiMGE2MTk2MTYtODI4Zi00MWZlLWEzN2ItMjczZGM2ODc5MGJmIiwiYXBwX2NvbnRleHQiOiJlbnRpdHktcGFnZXMiLCJtYXhfd2lkdGgiOjMyMCwibWF4X2hlaWdodCI6MzIwfQ?signature=a21e5c1393125a94fc9765898c25d73a064665dc3aacf872667c902d7ed9c3f9"
 BOT_AVATAR_URL = "https://raw.githubusercontent.com/PratikSondkarJKM/AkquiseWescraper/refs/heads/main/botavatar.svg"
 
@@ -42,6 +40,16 @@ BOT_AVATAR_URL = "https://raw.githubusercontent.com/PratikSondkarJKM/AkquiseWesc
 def build_msal_app():
     if not CLIENT_ID or not CLIENT_SECRET or not TENANT_ID:
         st.error("❌ Microsoft OAuth credentials not configured!")
+        st.info("""
+        Please create `.streamlit/secrets.toml` in your project directory with:
+        
+        ```
+        CLIENT_ID = "your-client-id"
+        CLIENT_SECRET = "your-client-secret"
+        TENANT_ID = "your-tenant-id"
+        REDIRECT_URI = "http://localhost:8501"
+        ```
+        """)
         st.stop()
     
     return ConfidentialClientApplication(
@@ -137,127 +145,7 @@ def auth_flow():
         st.stop()
     return True
 
-# ------------------- COPILOT STUDIO CLIENT -------------------
-class CopilotStudioM365Client:
-    """Copilot Studio client using user's Microsoft token"""
-    def __init__(self, endpoint_url, user_token):
-        self.base_endpoint = endpoint_url
-        self.user_token = user_token
-        self.conversation_id = None
-        self.watermark = None
-        
-    def start_conversation(self):
-        headers = {
-            "Authorization": f"Bearer {self.user_token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }
-        
-        try:
-            response = requests.post(
-                self.base_endpoint,
-                headers=headers,
-                json={},
-                timeout=30
-            )
-            
-            if response.status_code in [200, 201]:
-                data = response.json()
-                self.conversation_id = data.get("id") or data.get("conversationId")
-                return True
-            else:
-                return False
-        except Exception as e:
-            return False
-    
-    def send_message(self, message):
-        if not self.conversation_id:
-            if not self.start_conversation():
-                return "❌ Konnte keine Verbindung herstellen."
-        
-        headers = {
-            "Authorization": f"Bearer {self.user_token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }
-        
-        user_id = f"user_{abs(hash(self.user_token)) % 100000}"
-        
-        activity = {
-            "type": "message",
-            "text": message,
-            "from": {"id": user_id, "name": "User"},
-            "channelId": "directline",
-            "locale": "de-DE"
-        }
-        
-        try:
-            # Build activities URL properly with api-version
-            if '?' in self.base_endpoint:
-                base_url, query_params = self.base_endpoint.split('?', 1)
-                activities_url = f"{base_url}/{self.conversation_id}/activities?{query_params}"
-            else:
-                activities_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
-            
-            response = requests.post(
-                activities_url,
-                headers=headers,
-                json=activity,
-                timeout=30
-            )
-            
-            if response.status_code in [200, 201, 202]:
-                return self.get_response()
-            else:
-                return f"❌ Fehler: {response.status_code}"
-        except Exception as e:
-            return f"❌ Fehler: {str(e)}"
-    
-    def get_response(self, max_attempts=25, delay=1.5):
-        headers = {
-            "Authorization": f"Bearer {self.user_token}",
-            "Accept": "application/json"
-        }
-        
-        user_id = f"user_{abs(hash(self.user_token)) % 100000}"
-        
-        for attempt in range(max_attempts):
-            time.sleep(delay)
-            
-            try:
-                # Build activities URL properly with api-version
-                if '?' in self.base_endpoint:
-                    base_url, query_params = self.base_endpoint.split('?', 1)
-                    activities_url = f"{base_url}/{self.conversation_id}/activities?{query_params}"
-                else:
-                    activities_url = f"{self.base_endpoint}/{self.conversation_id}/activities"
-                
-                if self.watermark:
-                    if '?' in activities_url:
-                        activities_url += f"&watermark={self.watermark}"
-                    else:
-                        activities_url += f"?watermark={self.watermark}"
-                
-                response = requests.get(activities_url, headers=headers, timeout=30)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    activities = data.get("activities", [])
-                    self.watermark = data.get("watermark")
-                    
-                    for activity in reversed(activities):
-                        if activity.get("type") == "message":
-                            from_id = activity.get("from", {}).get("id", "")
-                            if from_id != user_id:
-                                text = activity.get("text", "")
-                                if text and text.strip():
-                                    return text
-            except Exception as e:
-                continue
-        
-        return "⏱️ Antwort dauert länger. Bitte erneut versuchen."
-
-# ---------------- TED SCRAPER FUNCTIONS (KEEPING YOUR ORIGINAL CODE) ----------------
+# ---------------- TED SCRAPER FUNCTIONS (keeping all existing code) ----------------
 def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_file):
     query = (
         f"(publication-date >={date_start}<={date_end}) AND (buyer-country IN ({buyer_country})) "
@@ -571,7 +459,7 @@ def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
     wb.save(output_excel)
     os.remove(temp_json)
 
-# ----------------CHATBOT FUNCTIONS ----------------
+# ---------------- CHATBOT FUNCTIONS ----------------
 def extract_text_from_pdf(file):
     try:
         pdf_reader = PyPDF2.PdfReader(file)
@@ -603,9 +491,10 @@ def extract_text_from_excel(file):
         
         if file_extension == 'csv':
             df = pd.read_csv(file)
-        else:
+        else:  # xlsx or xls
             df = pd.read_excel(file)
         
+        # Convert DataFrame to readable text format
         text = f"Excel File: {file.name}\n"
         text += f"Rows: {len(df)}, Columns: {len(df.columns)}\n\n"
         text += f"Column Names: {', '.join(df.columns.tolist())}\n\n"
@@ -620,6 +509,7 @@ def extract_text_from_image(file):
     try:
         image = Image.open(file)
         
+        # Get image info
         text = f"Image File: {file.name}\n"
         text += f"Format: {image.format}\n"
         text += f"Size: {image.size[0]}x{image.size[1]} pixels\n"
@@ -666,12 +556,23 @@ def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_n
 def main():
     st.set_page_config(page_title="TED Scraper & AI Assistant", layout="wide", initial_sidebar_state="collapsed")
     
+    # ChatGPT-style Custom CSS + Thinking animation
     st.markdown("""
     <style>
-    [data-testid="stAppViewContainer"] { background-color: #343541; }
-    [data-testid="stHeader"] { background-color: #343541; }
-    [data-testid="stSidebar"] { background-color: #202123; }
+    /* ChatGPT-style theme */
+    [data-testid="stAppViewContainer"] {
+        background-color: #343541;
+    }
     
+    [data-testid="stHeader"] {
+        background-color: #343541;
+    }
+    
+    [data-testid="stSidebar"] {
+        background-color: #202123;
+    }
+    
+    /* Main container */
     .main .block-container {
         padding-top: 2rem !important;
         padding-bottom: 2rem !important;
@@ -679,6 +580,7 @@ def main():
         margin: 0 auto !important;
     }
     
+    /* Chat message styling */
     .stChatMessage {
         background-color: transparent !important;
         padding: 1.5rem 0 !important;
@@ -691,13 +593,65 @@ def main():
         color: #ececf1 !important;
     }
     
+    /* User message - darker background */
     [data-testid="stChatMessage"][data-testid*="user"] [data-testid="stChatMessageContent"] {
         background-color: #343541 !important;
     }
     
-    .stMarkdown, .stText { color: #ececf1 !important; }
-    h1, h2, h3, h4, h5, h6 { color: #ececf1 !important; }
+    /* Thinking animation */
+    .thinking-indicator {
+        font-style: italic;
+        color: #8e8ea0;
+        font-size: 0.9rem;
+        padding: 0.5rem 0;
+    }
     
+    .thinking-dots::after {
+        content: '...';
+        animation: dots 1.5s steps(4, end) infinite;
+    }
+    
+    @keyframes dots {
+        0%, 20% { content: '.'; }
+        40% { content: '..'; }
+        60%, 100% { content: '...'; }
+    }
+    
+    /* Input field styling */
+    [data-testid="stChatInput"] textarea {
+        background-color: #40414f !important;
+        color: #ececf1 !important;
+        border: 1px solid #565869 !important;
+        border-radius: 0.75rem !important;
+        padding: 0.75rem 1rem !important;
+        font-size: 1rem !important;
+        min-height: 52px !important;
+        max-height: 200px !important;
+        line-height: 1.5 !important;
+        resize: none !important;
+    }
+    
+    [data-testid="stChatInput"] textarea:focus {
+        border-color: #10a37f !important;
+        box-shadow: 0 0 0 1px #10a37f !important;
+        outline: none !important;
+    }
+    
+    [data-testid="stChatInput"] > div {
+        background-color: transparent !important;
+        border: none !important;
+    }
+    
+    /* Text and headers */
+    .stMarkdown, .stText {
+        color: #ececf1 !important;
+    }
+    
+    h1, h2, h3, h4, h5, h6 {
+        color: #ececf1 !important;
+    }
+    
+    /* Buttons */
     .stButton button {
         background-color: #10a37f !important;
         color: white !important;
@@ -707,29 +661,104 @@ def main():
         font-weight: 500 !important;
     }
     
-    .stButton button:hover { background-color: #1a7f64 !important; }
+    .stButton button:hover {
+        background-color: #1a7f64 !important;
+    }
     
+    /* Avatar styling */
     [data-testid="stChatMessage"] img {
         border-radius: 0.25rem !important;
         width: 32px !important;
         height: 32px !important;
     }
     
+    /* Success/Info/Warning boxes */
     .stSuccess, .stInfo, .stWarning {
         background-color: #444654 !important;
         color: #ececf1 !important;
         border-radius: 0.5rem !important;
     }
+    
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2rem;
+        background-color: #343541;
+        border-bottom: 1px solid #565869;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        color: #ececf1 !important;
+        background-color: transparent;
+        border-bottom: 2px solid transparent;
+        padding: 1rem 0;
+        font-weight: 500;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        border-bottom-color: #10a37f !important;
+        color: #10a37f !important;
+    }
+    
+    /* Input fields */
+    .stTextInput input, .stDateInput input, .stSelectbox select {
+        background-color: #40414f !important;
+        color: #ececf1 !important;
+        border: 1px solid #565869 !important;
+        border-radius: 0.375rem !important;
+    }
+    
+    /* Labels */
+    label {
+        color: #ececf1 !important;
+    }
+    
+    /* Download button */
+    .stDownloadButton button {
+        background-color: #10a37f !important;
+        color: white !important;
+    }
+    
+    /* Expander */
+    .streamlit-expanderHeader {
+        background-color: #444654 !important;
+        color: #ececf1 !important;
+        border-radius: 0.5rem !important;
+    }
+    
+    /* File uploader styling */
+    [data-testid="stFileUploader"] {
+        background-color: transparent !important;
+        border: none !important;
+        padding: 0 !important;
+        margin-bottom: 1rem !important;
+    }
+    
+    [data-testid="stFileUploader"] section {
+        border: 1px dashed #565869 !important;
+        border-radius: 0.5rem !important;
+        padding: 0.75rem !important;
+        background-color: #40414f !important;
+    }
+    
+    [data-testid="stFileUploader"] button {
+        background-color: #565869 !important;
+        color: #ececf1 !important;
+            font-size: 0.875rem !important;
+            padding: 0.25rem 0.5rem !important;
+    }
     </style>
     """, unsafe_allow_html=True)
     
+    # Authentication guard
     auth_flow()
     
+    # Create tabs after authentication
     tab1, tab2 = st.tabs(["📄 TED Scraper", "💬 AI Assistant"])
     
+    # ============= TAB 1: TED SCRAPER =============
     with tab1:
         st.header("📄 TED EU Notice Scraper")
-        st.write("Download TED procurement notices to Excel.")
+        st.write("Download TED procurement notices to Excel (data is exported as a table for Power Automate).")
         
         with st.expander("ℹ️ How this works / Instructions", expanded=False):
             st.write("""
@@ -783,82 +812,215 @@ def main():
                     if os.path.exists(temp_excel.name):
                         os.remove(temp_excel.name)
     
+    # ============= TAB 2: CHATBOT =============
     with tab2:
+        # Sidebar for document library
         with st.sidebar:
+            # Get Azure credentials from secrets
+            azure_endpoint = get_secret("AZURE_ENDPOINT", "")
+            azure_key = get_secret("AZURE_API_KEY", "")
+            deployment_name = get_secret("DEPLOYMENT_NAME", "gpt-4o-mini")
+            api_version = "2024-08-01-preview"
+            
+            # Show configuration status
             st.markdown("## 🔑 Configuration")
-            
-            if COPILOT_STUDIO_ENDPOINT:
-                st.success("✅ Copilot Studio")
-                
-                # TOKEN DEBUGGING - For Postman testing
-                with st.expander("📋 Get Postman Token", expanded=False):
-                    user_token = st.session_state.get("user_token", "")
-                    if user_token:
-                        st.write("**Copy this token for Postman testing:**")
-                        st.code(user_token, language="text")
-                        st.info("✅ This is your USER authentication token")
-                        
-                        # Also show Postman collection
-                        st.write("**Postman Collection Details:**")
-                        st.markdown(f"""
-                        - **Endpoint:** {COPILOT_STUDIO_ENDPOINT}
-                        - **Token:** Paste your token above
-                        - **API Version:** 2022-03-01-preview
-                        """)
-                    else:
-                        st.warning("Not logged in yet")
+            if azure_endpoint and azure_key:
+                st.success("✅ Azure AI Connected")
+                try:
+                    masked_endpoint = azure_endpoint.replace("https://", "").split(".")[0]
+                    st.info(f"🔗 {masked_endpoint}")
+                except:
+                    st.info("🔗 Endpoint configured")
+                st.info(f"🤖 {deployment_name}")
             else:
-                st.warning("⚠️ No Copilot endpoint configured")
+                st.warning("⚠️ Azure credentials missing")
             
+            st.markdown("---")
+            st.markdown("## 📚 Document Library")
+            st.caption("Optional: Upload files for context")
+            
+            # Initialize document store
+            if "document_store" not in st.session_state:
+                st.session_state.document_store = {}
+            
+            # File uploader in sidebar
+            library_files = st.file_uploader(
+                "Upload Documents", 
+                type=['pdf', 'docx', 'txt', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg'],
+                accept_multiple_files=True,
+                key="library_uploader",
+                help="Upload PDFs, Word, Excel, or image files",
+                label_visibility="collapsed"
+            )
+            
+            if library_files:
+                for uploaded_file in library_files:
+                    if uploaded_file.name not in st.session_state.document_store:
+                        with st.spinner(f"Processing {uploaded_file.name}..."):
+                            text = process_uploaded_file(uploaded_file)
+                            if text:
+                                st.session_state.document_store[uploaded_file.name] = text
+                                st.success(f"✅ {uploaded_file.name}")
+            
+            if st.session_state.document_store:
+                st.markdown(f"**📁 {len(st.session_state.document_store)} document(s)**")
+                for doc_name in list(st.session_state.document_store.keys()):
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        st.caption(f"• {doc_name}")
+                    with col2:
+                        if st.button("🗑️", key=f"del_{doc_name}"):
+                            del st.session_state.document_store[doc_name]
+                            st.rerun()
+            
+            # Clear chat button
             st.markdown("---")
             if st.button("🗑️ Clear Chat", use_container_width=True):
                 st.session_state.chat_messages = []
-                if "copilot_client" in st.session_state:
-                    del st.session_state.copilot_client
                 st.rerun()
         
-        # Initialize chat
-        if "chat_messages" not in st.session_state:
-            st.session_state.chat_messages = []
-        
-        if "copilot_client" not in st.session_state and COPILOT_STUDIO_ENDPOINT:
-            user_token = st.session_state.get("user_token", "")
-            if user_token:
-                st.session_state.copilot_client = CopilotStudioM365Client(
-                    COPILOT_STUDIO_ENDPOINT,
-                    user_token
-                )
-        
-        if not COPILOT_STUDIO_ENDPOINT:
-            st.error("❌ No Copilot Studio endpoint configured")
+        # Main chat interface
+        if not azure_endpoint or not azure_key:
+            st.error("❌ Azure AI Foundry credentials not configured!")
+            st.info("""
+            **Add to `.streamlit/secrets.toml`:**
+            ```
+            AZURE_ENDPOINT = "https://your-resource.openai.azure.com"
+            AZURE_API_KEY = "your-api-key"
+            DEPLOYMENT_NAME = "gpt-4o-mini"
+            ```
+            """)
         else:
-            # Display welcome message
+            # Initialize chat history
+            if "chat_messages" not in st.session_state:
+                st.session_state.chat_messages = []
+            
+            # Display welcome message - USING JKM LOGO FOR ASSISTANT
             if not st.session_state.chat_messages:
                 with st.chat_message("assistant", avatar=JKM_LOGO_URL):
-                    st.markdown("👋 **Willkommen beim JKM AI Assistant!** Ich bin mit Ihrem SharePoint verbunden. Stellen Sie mir eine Frage!")
+                    st.markdown("""
+                    👋 **Willkommen beim JKM AI Assistant!**
+                    
+                    Ich bin Ihr KI-Assistent und kann Ihnen bei verschiedenen Aufgaben helfen.
+                    
+                    **Möglichkeiten:**
+                    - 💬 Allgemeine Fragen beantworten
+                    - 📄 Dokumente analysieren (PDF, Word, TXT)
+                    - 🔍 Ausschreibungen prüfen
+                    - ✍️ Texte schreiben und übersetzen
+                    
+                    Stellen Sie mir einfach eine Frage!
+                    """)
             
-            # Display chat history
+            # Display chat history - SWAPPED AVATARS
             for message in st.session_state.chat_messages:
                 avatar = JKM_LOGO_URL if message["role"] == "assistant" else BOT_AVATAR_URL
                 with st.chat_message(message["role"], avatar=avatar):
                     st.markdown(message["content"])
             
+            # File uploader BEFORE chat input
+            st.markdown("---")
+            quick_file = st.file_uploader(
+                "📎 Drag and drop file here or click to browse", 
+                type=['pdf', 'docx', 'txt', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg'],
+                key="quick_uploader",
+                help="Upload documents, Excel files, or images"
+            )
+            
+            if quick_file:
+                if quick_file.name not in st.session_state.document_store:
+                    with st.spinner(f"Processing {quick_file.name}..."):
+                        text = process_uploaded_file(quick_file)
+                        if text:
+                            st.session_state.document_store[quick_file.name] = text
+                            st.success(f"✅ {quick_file.name} added")
+                            st.rerun()
+            
             # Chat input
-            if prompt := st.chat_input("Nachricht..."):
+            if prompt := st.chat_input("Message JKM AI Assistant..."):
+                # Prepare context
+                context_parts = []
+                
+                if st.session_state.document_store:
+                    library_context = "\n\n".join([
+                        f"=== DOCUMENT: {name} ===\n{content[:5000]}" 
+                        for name, content in st.session_state.document_store.items()
+                    ])
+                    context_parts.append(library_context)
+                
+                # Add user message with BOT AVATAR
                 st.session_state.chat_messages.append({"role": "user", "content": prompt})
                 with st.chat_message("user", avatar=BOT_AVATAR_URL):
                     st.markdown(prompt)
                 
+                # Show "thinking" indicator with JKM LOGO
                 with st.chat_message("assistant", avatar=JKM_LOGO_URL):
-                    placeholder = st.empty()
-                    placeholder.markdown("💭 Thinking...")
+                    thinking_placeholder = st.empty()
+                    thinking_placeholder.markdown('<div class="thinking-indicator"><span class="thinking-dots">💭 AI denkt nach</span></div>', unsafe_allow_html=True)
                     
+                    # Prepare system message
+                    if context_parts:
+                        full_context = "\n\n".join(context_parts)
+                        system_content = f"""You are JKM AI Assistant - a helpful AI assistant for tenders, procurement documents, and general tasks.
+
+You have access to the following documents:
+
+{full_context}
+
+INSTRUCTIONS:
+- Analyze and answer questions based on the provided documents
+- Extract specific information, identify empty fields, requirements, deadlines, etc.
+- Always respond in German when asked in German, otherwise in English
+- Be precise, professional, and helpful
+- When analyzing PDFs: Look for specific sections, fields, tables, and requirements
+- Summarize key information clearly"""
+                    else:
+                        system_content = """You are JKM AI Assistant - a helpful AI assistant for general questions and tasks.
+
+INSTRUCTIONS:
+- Answer general questions helpfully and precisely
+- Always respond in German when asked in German, otherwise in English
+- Be professional and friendly
+- For procurement/tender questions: If documents are uploaded, analyze them in detail"""
+                    
+                    system_message = {"role": "system", "content": system_content}
+                    
+                    api_messages = [system_message] + [
+                        {"role": m["role"], "content": m["content"]}
+                        for m in st.session_state.chat_messages
+                    ]
+                    
+                    # Get response
                     try:
-                        response = st.session_state.copilot_client.send_message(prompt)
-                        placeholder.markdown(response)
-                        st.session_state.chat_messages.append({"role": "assistant", "content": response})
+                        stream = get_azure_chatbot_response(
+                            api_messages, 
+                            azure_endpoint, 
+                            azure_key, 
+                            deployment_name,
+                            api_version
+                        )
+                        
+                        # Collect full response with error handling
+                        response_text = ""
+                        for chunk in stream:
+                            if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
+                                if hasattr(chunk.choices[0], 'delta') and hasattr(chunk.choices[0].delta, 'content'):
+                                    if chunk.choices[0].delta.content:
+                                        response_text += chunk.choices[0].delta.content
+                        
+                        # Clear thinking indicator and show response
+                        thinking_placeholder.empty()
+                        st.markdown(response_text)
+                        
+                        st.session_state.chat_messages.append({"role": "assistant", "content": response_text})
+                        
                     except Exception as e:
-                        placeholder.markdown(f"❌ Error: {str(e)}")
+                        thinking_placeholder.empty()
+                        st.error(f"❌ Error: {str(e)}")
+                        st.info("Please check your Azure configuration in secrets.toml")
 
 if __name__ == "__main__":
     main()
+
+
+
