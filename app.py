@@ -172,7 +172,6 @@ def fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_c
     query_parts.append("(notice-type IN (pin-cfc-standard pin-cfc-social qu-sy cn-standard cn-social subco cn-desg))")
     
     query = " AND ".join(query_parts)
-    st.info(f"🔍 Query: `{query}`")
     
     payload = {
         "query": query,
@@ -1076,5 +1075,6 @@ INSTRUCTIONS:
 
 if __name__ == "__main__":
     main()
+
 
 
