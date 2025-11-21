@@ -32,7 +32,7 @@ SCOPE = ["https://graph.microsoft.com/User.Read"]
 
 API = "https://api.ted.europa.eu/v3/notices/search"
 
-# Avatars - SWAPPED: Assistant = JKM Logo, User = Bot
+# Avatars
 JKM_LOGO_URL = "https://www.xing.com/imagecache/public/scaled_original_image/eyJ1dWlkIjoiMGE2MTk2MTYtODI4Zi00MWZlLWEzN2ItMjczZGM2ODc5MGJmIiwiYXBwX2NvbnRleHQiOiJlbnRpdHktcGFnZXMiLCJtYXhfd2lkdGgiOjMyMCwibWF4X2hlaWdodCI6MzIwfQ?signature=a21e5c1393125a94fc9765898c25d73a064665dc3aacf872667c902d7ed9c3f9"
 BOT_AVATAR_URL = "https://raw.githubusercontent.com/PratikSondkarJKM/AkquiseWescraper/refs/heads/main/botavatar.svg"
 
@@ -148,58 +148,106 @@ def auth_flow():
 # ---------------- TED SCRAPER FUNCTIONS ----------------
 def fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_country, json_file):
     """
-    Modified to include keyword search using FT (full text) parameter
+    Fetch TED notices with CORRECTED multi-word keyword support
     """
-    # Build query parts
-    query_parts = [
-        f"(publication-date >={date_start}<={date_end})",
-        f"(buyer-country IN ({buyer_country}))"
-    ]
+    query_parts = []
     
-    # Add CPV codes if provided
+    # Date range - REQUIRED
+    query_parts.append(f"PD=[{date_start} <> {date_end}]")
+    
+    # Buyer country - REQUIRED
+    query_parts.append(f"CY=[{buyer_country}]")
+    
+    # CPV codes - OPTIONAL
     if cpv_codes and cpv_codes.strip():
-        query_parts.append(f"(classification-cpv IN ({cpv_codes}))")
+        codes_list = cpv_codes.strip().split()
+        if len(codes_list) == 1:
+            query_parts.append(f"PC=[{codes_list[0]}]")
+        else:
+            codes_formatted = " or ".join(codes_list)
+            query_parts.append(f"PC=[{codes_formatted}]")
     
-    # Add keyword search if provided
+    # Keywords - OPTIONAL (FIXED for multi-word support)
     if keywords and keywords.strip():
-        # Use FT (full text) search for keywords
-        query_parts.append(f"(FT={keywords})")
+        # Clean keywords
+        clean_keywords = keywords.strip().replace('"', '').replace("'", "")
+        
+        # Use ~ operator for multi-word searches (treats spaces as AND)
+        # This handles both single words and multi-word phrases
+        if ' ' in clean_keywords:
+            # Multi-word: use ~ with parentheses
+            query_parts.append(f"TD~({clean_keywords})")
+        else:
+            # Single word: use = operator
+            query_parts.append(f"TD=[{clean_keywords}]")
     
-    # Add notice type filter
-    query_parts.append("(notice-type IN (pin-cfc-standard pin-cfc-social qu-sy cn-standard cn-social subco cn-desg))")
+    # Notice types - business opportunities
+    query_parts.append("TD=[pin-cfc-standard or pin-cfc-social or qu-sy or cn-standard or cn-social or subco or cn-desg]")
     
+    # Join with AND
     query = " AND ".join(query_parts)
     
+    # Show query for debugging
+    st.info(f"🔍 Query: `{query}`")
+    
     payload = {
-        "query": query,
-        "fields": ["publication-number", "links"],
-        "scope": "ACTIVE",
-        "checkQuerySyntax": False,
-        "paginationMode": "PAGE_NUMBER",
-        "page": 1,
-        "limit": 100
+        "q": query,
+        "fields": ["ND", "PD", "CONTENT"],
+        "scope": 2,
+        "pageNum": 1,
+        "pageSize": 100,
+        "reverseOrder": False,
+        "sortField": "PD"
     }
+    
     s = requests.Session()
-    s.headers.update({"Accept": "application/json"})
+    s.headers.update({
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    })
+    
     all_notices = []
     page = 1
+    
     while True:
         body = dict(payload)
-        body["page"] = page
-        r = s.post(API, json=body, timeout=60)
-        r.raise_for_status()
-        data = r.json()
-        notices = data.get("results") or data.get("items") or data.get("notices") or []
-        if not notices:
-            break
-        all_notices.extend(notices)
-        total = data.get("total") or data.get("totalCount")
-        if not notices or (total and page * payload["limit"] >= total):
-            break
-        page += 1
-        time.sleep(0.2)
+        body["pageNum"] = page
+        
+        try:
+            r = s.post(API, json=body, timeout=60)
+            
+            if r.status_code != 200:
+                st.error(f"❌ API Error {r.status_code}")
+                st.code(r.text[:500])  # Show first 500 chars
+                r.raise_for_status()
+            
+            data = r.json()
+            notices = data.get("notices", [])
+            
+            if not notices:
+                break
+            
+            all_notices.extend(notices)
+            
+            total = data.get("total", 0)
+            if len(all_notices) >= total:
+                break
+            
+            page += 1
+            time.sleep(0.3)
+            
+        except requests.exceptions.HTTPError as e:
+            st.error(f"❌ HTTP Error: {e}")
+            st.code(f"Query: {query}")
+            raise
+        except Exception as e:
+            st.error(f"❌ Unexpected error: {e}")
+            raise
+    
     with open(json_file, "w", encoding="utf-8") as f:
         json.dump({"notices": all_notices}, f, ensure_ascii=False, indent=2)
+    
+    return len(all_notices)
 
 def _get_links_block(notice: dict) -> dict:
     links = notice.get("links") or {}
@@ -435,16 +483,32 @@ def main_scraper(cpv_codes, keywords, date_start, date_end, buyer_country):
     Modified to return rows instead of saving to Excel directly
     """
     temp_json = tempfile.mktemp(suffix=".json")
-    fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_country, temp_json)
+    
+    count = fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_country, temp_json)
+    
+    if count == 0:
+        st.warning("⚠️ No notices found matching your criteria.")
+        return []
+    
     with open(temp_json, "r", encoding="utf-8") as f:
         data = json.load(f)
-    notices = data.get("results") or data.get("items") or data.get("notices") or []
+    
+    notices = data.get("notices", [])
+    
     s = requests.Session()
     rows = []
-    for n in notices:
-        pubno = n.get("publication-number")
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for idx, n in enumerate(notices):
+        pubno = n.get("ND") or n.get("publication-number")
         if not pubno:
             continue
+        
+        status_text.text(f"Processing {idx+1}/{len(notices)}: {pubno}")
+        progress_bar.progress((idx + 1) / len(notices))
+        
         try:
             xml_bytes = fetch_notice_xml(s, pubno, n)
             fields = parse_xml_fields(xml_bytes)
@@ -452,8 +516,13 @@ def main_scraper(cpv_codes, keywords, date_start, date_end, buyer_country):
             fields.setdefault("Ted-Link", f"https://ted.europa.eu/en/notice/-/detail/{pubno}")
             rows.append(fields)
         except Exception as e:
-            print(f"ERR {pubno}: {e}")
+            st.warning(f"⚠️ Error processing {pubno}: {e}")
+        
         time.sleep(0.25)
+    
+    progress_bar.empty()
+    status_text.empty()
+    
     os.remove(temp_json)
     return rows
 
@@ -485,7 +554,7 @@ def save_to_excel(rows, output_excel):
     ws.add_table(table)
     wb.save(output_excel)
 
-# ---------------- CHATBOT FUNCTIONS (keeping all existing code) ----------------
+# ---------------- CHATBOT FUNCTIONS ----------------
 def extract_text_from_pdf(file):
     try:
         pdf_reader = PyPDF2.PdfReader(file)
@@ -517,7 +586,7 @@ def extract_text_from_excel(file):
         
         if file_extension == 'csv':
             df = pd.read_csv(file)
-        else:  # xlsx or xls
+        else:
             df = pd.read_excel(file)
         
         text = f"Excel File: {file.name}\n"
@@ -579,10 +648,9 @@ def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_n
 def main():
     st.set_page_config(page_title="TED Scraper & AI Assistant", layout="wide", initial_sidebar_state="collapsed")
     
-    # ChatGPT-style Custom CSS (keeping all existing CSS)
+    # ChatGPT-style Custom CSS
     st.markdown("""
     <style>
-    /* ChatGPT-style theme */
     [data-testid="stAppViewContainer"] {
         background-color: #343541;
     }
@@ -755,7 +823,6 @@ def main():
         padding: 0.25rem 0.5rem !important;
     }
     
-    /* Data editor styling */
     [data-testid="stDataFrame"] {
         background-color: #40414f !important;
     }
@@ -765,11 +832,11 @@ def main():
     # Authentication guard
     auth_flow()
     
-    # Initialize session state for scraped data
+    # Initialize session state
     if "scraped_data" not in st.session_state:
         st.session_state.scraped_data = None
     
-    # Create tabs after authentication
+    # Create tabs
     tab1, tab2 = st.tabs(["📄 TED Scraper", "💬 AI Assistant"])
     
     # ============= TAB 1: TED SCRAPER =============
@@ -779,18 +846,23 @@ def main():
         
         with st.expander("ℹ️ How this works / Instructions", expanded=False):
             st.write("""
-            **NEW FEATURES:**
-            - 🔍 Search by **keywords** OR **CPV codes** OR **both**
+            **FEATURES:**
+            - 🔍 Search by **keywords** (single or multi-word) OR **CPV codes** OR **both**
             - 👀 **Preview results** before downloading
-            - 🎯 **Filter results** by columns (Beschaffer, Region, etc.)
+            - 🎯 **Filter results** by dates and other criteria
             - ⬇️ **Download only filtered data**
             
+            **Keywords Examples:**
+            - Single word: `construction` ✅
+            - Multi-word: `project management` ✅
+            - Multiple phrases: `quality management` ✅
+            
             **Steps:**
-            1. Enter your search criteria (keywords and/or CPV codes)
+            1. Enter your search criteria
             2. Set date range and country
             3. Click **🔍 Search Notices**
-            4. Review and filter results in the table
-            5. Click **⬇️ Download Filtered Results** to get Excel file
+            4. Review and filter results
+            5. Download filtered Excel file
             """)
 
         # Search inputs
@@ -799,9 +871,9 @@ def main():
         col1, col2 = st.columns(2)
         with col1:
             keywords = st.text_input(
-                "🔤 Keywords (full text search)",
-                placeholder="e.g., software development, construction, consulting",
-                help="Search across all notice text. Leave empty to search by CPV only."
+                "🔤 Keywords (single or multi-word)",
+                placeholder="e.g., project management, quality assurance",
+                help="Single words (construction) or phrases (project management) work!"
             )
         with col2:
             cpv_codes = st.text_input(
@@ -812,14 +884,14 @@ def main():
 
         col3, col4 = st.columns(2)
         with col3:
-            buyer_country = st.text_input("🌍 Buyer Country (ISO Alpha-3)", "DEU")
+            buyer_country = st.text_input("🌍 Buyer Country (ISO Alpha-3)", "DEU", help="e.g., DEU, FRA, ITA, ESP")
         with col4:
             today = date.today()
             date_col1, date_col2 = st.columns(2)
             with date_col1:
-                start_date_obj = st.date_input("📆 Start Date", value=today)
+                start_date_obj = st.date_input("📆 Publication Start", value=today)
             with date_col2:
-                end_date_obj = st.date_input("📆 End Date", value=today)
+                end_date_obj = st.date_input("📆 Publication End", value=today)
 
         date_start = start_date_obj.strftime("%Y%m%d")
         date_end = end_date_obj.strftime("%Y%m%d")
@@ -833,9 +905,14 @@ def main():
                     try:
                         rows = main_scraper(cpv_codes, keywords, date_start, date_end, buyer_country)
                         st.session_state.scraped_data = rows
-                        st.success(f"✅ Found {len(rows)} notices!")
+                        if len(rows) > 0:
+                            st.success(f"✅ Found {len(rows)} notices!")
+                        else:
+                            st.warning("⚠️ No results found. Try adjusting your search criteria.")
                     except Exception as e:
                         st.error(f"❌ Error during search: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
 
         # Display results with filtering
         if st.session_state.scraped_data:
@@ -847,29 +924,54 @@ def main():
             # Display count
             st.info(f"📈 Total Results: **{len(df)}** notices")
             
-            # Filter options
+            # NEW: Enhanced filters with date pickers
             with st.expander("🎯 Filter Results", expanded=True):
-                filter_col1, filter_col2, filter_col3 = st.columns(3)
+                filter_row1_col1, filter_row1_col2, filter_row1_col3 = st.columns(3)
                 
-                with filter_col1:
+                with filter_row1_col1:
                     if "Beschaffer" in df.columns:
                         beschaffer_options = ["All"] + sorted(df["Beschaffer"].dropna().unique().tolist())
                         selected_beschaffer = st.selectbox("Filter by Beschaffer", beschaffer_options)
                     else:
                         selected_beschaffer = "All"
                 
-                with filter_col2:
+                with filter_row1_col2:
                     if "Ort/Region" in df.columns:
                         region_options = ["All"] + sorted(df["Ort/Region"].dropna().unique().tolist())
                         selected_region = st.selectbox("Filter by Region", region_options)
                     else:
                         selected_region = "All"
                 
-                with filter_col3:
+                with filter_row1_col3:
                     if "Projektvolumen" in df.columns:
                         volume_filter = st.text_input("Min Volume (EUR)", placeholder="e.g., 100000")
                     else:
                         volume_filter = ""
+                
+                # NEW: Date filters row 2
+                st.markdown("**📅 Date Filters**")
+                filter_row2_col1, filter_row2_col2, filter_row2_col3 = st.columns(3)
+                
+                with filter_row2_col1:
+                    filter_projektstart = st.date_input(
+                        "🗓️ Min Projektstart",
+                        value=None,
+                        help="Filter notices with project start date on or after this date"
+                    )
+                
+                with filter_row2_col2:
+                    filter_projektende = st.date_input(
+                        "🗓️ Max Projektende",
+                        value=None,
+                        help="Filter notices with project end date on or before this date"
+                    )
+                
+                with filter_row2_col3:
+                    filter_frist = st.date_input(
+                        "⏰ Min Frist Abgabedatum",
+                        value=None,
+                        help="Filter notices with submission deadline on or after this date"
+                    )
             
             # Apply filters
             filtered_df = df.copy()
@@ -883,16 +985,40 @@ def main():
             if volume_filter:
                 try:
                     min_volume = float(volume_filter)
-                    # Extract numeric values from Projektvolumen
                     filtered_df["volume_numeric"] = filtered_df["Projektvolumen"].str.extract(r'([\d,.]+)')[0].str.replace(',', '').astype(float, errors='ignore')
                     filtered_df = filtered_df[filtered_df["volume_numeric"] >= min_volume]
                     filtered_df = filtered_df.drop(columns=["volume_numeric"])
                 except:
                     st.warning("⚠️ Invalid volume filter")
             
+            # NEW: Date filters application
+            if filter_projektstart:
+                filtered_df["projektstart_date"] = pd.to_datetime(filtered_df["Projektstart"], errors='coerce')
+                filtered_df = filtered_df[
+                    (filtered_df["projektstart_date"].isna()) | 
+                    (filtered_df["projektstart_date"] >= pd.Timestamp(filter_projektstart))
+                ]
+                filtered_df = filtered_df.drop(columns=["projektstart_date"])
+            
+            if filter_projektende:
+                filtered_df["projektende_date"] = pd.to_datetime(filtered_df["Projektende"], errors='coerce')
+                filtered_df = filtered_df[
+                    (filtered_df["projektende_date"].isna()) | 
+                    (filtered_df["projektende_date"] <= pd.Timestamp(filter_projektende))
+                ]
+                filtered_df = filtered_df.drop(columns=["projektende_date"])
+            
+            if filter_frist:
+                filtered_df["frist_date"] = pd.to_datetime(filtered_df["Frist Abgabedatum"], errors='coerce')
+                filtered_df = filtered_df[
+                    (filtered_df["frist_date"].isna()) | 
+                    (filtered_df["frist_date"] >= pd.Timestamp(filter_frist))
+                ]
+                filtered_df = filtered_df.drop(columns=["frist_date"])
+            
             st.info(f"🎯 Filtered Results: **{len(filtered_df)}** notices")
             
-            # Display dataframe with selection
+            # Display dataframe
             st.dataframe(
                 filtered_df,
                 use_container_width=True,
@@ -907,7 +1033,6 @@ def main():
             col_dl1, col_dl2 = st.columns(2)
             
             with col_dl1:
-                # Download filtered results
                 if len(filtered_df) > 0:
                     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_excel:
                         try:
@@ -928,7 +1053,6 @@ def main():
                                 os.remove(temp_excel.name)
             
             with col_dl2:
-                # Download all results
                 with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_excel:
                     try:
                         save_to_excel(st.session_state.scraped_data, temp_excel.name)
@@ -945,9 +1069,8 @@ def main():
                         if os.path.exists(temp_excel.name):
                             os.remove(temp_excel.name)
     
-    # ============= TAB 2: CHATBOT (keeping all existing code) =============
+    # ============= TAB 2: CHATBOT (unchanged) =============
     with tab2:
-        # Sidebar for document library
         with st.sidebar:
             azure_endpoint = get_secret("AZURE_ENDPOINT", "")
             azure_key = get_secret("AZURE_API_KEY", "")
