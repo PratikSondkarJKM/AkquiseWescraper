@@ -14,6 +14,206 @@ import pandas as pd
 import base64
 from PIL import Image
 
+# ------------------- TRANSLATIONS -------------------
+TRANSLATIONS = {
+    "en": {
+        # Top bar
+        "title": "TED Scraper & AI Assistant",
+        "language": "Language",
+        
+        # Tab names
+        "tab_scraper": "📄 TED Scraper",
+        "tab_assistant": "💬 AI Assistant",
+        
+        # Scraper section
+        "scraper_header": "📄 TED EU Notice Scraper",
+        "scraper_subtitle": "Search and filter TED procurement notices before downloading.",
+        "instructions_header": "ℹ️ How this works / Instructions",
+        "features_title": "**FEATURES:**",
+        "feature_1": "- 🔍 Search by **keywords** (single or multi-word) OR **CPV codes** OR **both**",
+        "feature_2": "- 👀 **Preview results** before downloading",
+        "feature_3": "- 🎯 **Multi-select filters** - Select multiple Beschaffer or Regions with checkboxes!",
+        "feature_4": "- ⬇️ **Download only filtered data**",
+        "keywords_examples": "**Keywords Examples:**",
+        "example_1": "- Single word: `construction` ✅",
+        "example_2": "- Multi-word: `project management` ✅",
+        "multiselect_info": "**Multi-Select Filters:**",
+        "multiselect_1": "- Click dropdown and tick multiple options",
+        "multiselect_2": "- Filter by multiple contractors or locations at once",
+        
+        # Search inputs
+        "search_criteria": "🔍 Search Criteria",
+        "keywords_label": "🔤 Keywords (single or multi-word)",
+        "keywords_placeholder": "e.g., project management, quality assurance",
+        "keywords_help": "Single words or phrases work!",
+        "cpv_label": "🏷️ CPV Codes (space separated)",
+        "cpv_help": "Classification codes. Leave empty to search by keywords only.",
+        "country_label": "🌍 Buyer Country (ISO Alpha-3)",
+        "country_help": "e.g., DEU, FRA, ITA, ESP",
+        "date_start_label": "📆 Publication Start",
+        "date_end_label": "📆 Publication End",
+        "search_button": "🔍 Search Notices",
+        
+        # Errors and warnings
+        "error_no_keywords": "❌ Please enter either keywords or CPV codes (or both)!",
+        "searching": "Searching TED database... This may take a few minutes.",
+        "success_found": "✅ Found {count} notices!",
+        "warning_no_results": "⚠️ No results found. Try adjusting your search criteria.",
+        "error_search": "❌ Error during search: {error}",
+        
+        # Results section
+        "results_header": "📊 Search Results",
+        "total_results": "📈 Total Results: **{count}** notices",
+        "filter_results": "🎯 Filter Results",
+        "filter_beschaffer": "✅ Filter by Beschaffer (Multi-select)",
+        "filter_beschaffer_help": "Select multiple contractors using checkboxes",
+        "filter_region": "✅ Filter by Region (Multi-select)",
+        "filter_region_help": "Select multiple locations using checkboxes",
+        "filter_volume": "Min Volume (EUR)",
+        "filter_volume_placeholder": "e.g., 100000",
+        "filter_projektstart": "🗓️ Projectstart",
+        "filter_projektstart_help": "Filter notices with project start date on or after this date",
+        "filter_projektende": "🗓️ Projectend",
+        "filter_projektende_help": "Filter notices with project end date on or before this date",
+        "filter_frist": "⏰ Frist Abgabedatum",
+        "filter_frist_help": "Filter notices with submission deadline on or after this date",
+        "filtered_results": "🎯 Filtered Results: **{count}** notices",
+        "warning_volume": "⚠️ Invalid volume filter",
+        
+        # Download buttons
+        "download_filtered": "⬇️ Download Filtered Results ({count} notices)",
+        "download_all": "⬇️ Download All Results ({count} notices)",
+        
+        # Chatbot section
+        "config_header": "## 🔑 Configuration",
+        "azure_connected": "✅ Azure AI Connected",
+        "azure_warning": "⚠️ Azure credentials missing",
+        "doc_library": "## 📚 Document Library",
+        "doc_optional": "Optional: Upload files for context",
+        "clear_chat": "🗑️ Clear Chat",
+        "azure_error": "❌ Azure AI Foundry credentials not configured!",
+        "azure_info": "**Add to `.streamlit/secrets.toml`:**",
+        "welcome_header": "👋 **Welcome to JKM AI Assistant!**",
+        "welcome_text": "I am your AI assistant and can help you with various tasks.",
+        "possibilities": "**Possibilities:**",
+        "possibility_1": "- 💬 Answer general questions",
+        "possibility_2": "- 📄 Analyze documents (PDF, Word, TXT)",
+        "possibility_3": "- 🔍 Review tenders",
+        "possibility_4": "- ✍️ Write and translate texts",
+        "ask_question": "Just ask me a question!",
+        "file_upload": "📎 Drag and drop file here or click to browse",
+        "file_help": "Upload documents, Excel files, or images",
+        "file_added": "✅ {filename} added",
+        "chat_input": "Message JKM AI Assistant...",
+        "thinking": "💭 AI is thinking",
+        "error_check_config": "Please check your Azure configuration in secrets.toml",
+        "processing": "Processing {filename}...",
+        "query_label": "🔍 Query: `{query}`",
+    },
+    "de": {
+        # Top bar
+        "title": "TED Scraper & AI Assistent",
+        "language": "Sprache",
+        
+        # Tab names
+        "tab_scraper": "📄 TED Scraper",
+        "tab_assistant": "💬 KI-Assistent",
+        
+        # Scraper section
+        "scraper_header": "📄 TED EU Ausschreibungs-Scraper",
+        "scraper_subtitle": "Durchsuchen und filtern Sie TED-Ausschreibungen vor dem Herunterladen.",
+        "instructions_header": "ℹ️ So funktioniert es / Anleitung",
+        "features_title": "**FUNKTIONEN:**",
+        "feature_1": "- 🔍 Suche nach **Schlüsselwörtern** (einzeln oder mehrere Wörter) ODER **CPV-Codes** ODER **beides**",
+        "feature_2": "- 👀 **Vorschau der Ergebnisse** vor dem Herunterladen",
+        "feature_3": "- 🎯 **Multi-Select-Filter** - Wählen Sie mehrere Beschaffer oder Regionen mit Checkboxen!",
+        "feature_4": "- ⬇️ **Nur gefilterte Daten herunterladen**",
+        "keywords_examples": "**Schlüsselwort-Beispiele:**",
+        "example_1": "- Einzelwort: `construction` ✅",
+        "example_2": "- Mehrere Wörter: `project management` ✅",
+        "multiselect_info": "**Multi-Select-Filter:**",
+        "multiselect_1": "- Dropdown anklicken und mehrere Optionen auswählen",
+        "multiselect_2": "- Nach mehreren Auftraggebern oder Standorten gleichzeitig filtern",
+        
+        # Search inputs
+        "search_criteria": "🔍 Suchkriterien",
+        "keywords_label": "🔤 Schlüsselwörter (einzeln oder mehrere)",
+        "keywords_placeholder": "z.B., Projektmanagement, Qualitätssicherung",
+        "keywords_help": "Einzelne Wörter oder Phrasen funktionieren!",
+        "cpv_label": "🏷️ CPV-Codes (durch Leerzeichen getrennt)",
+        "cpv_help": "Klassifikationscodes. Leer lassen, um nur nach Schlüsselwörtern zu suchen.",
+        "country_label": "🌍 Auftraggeber-Land (ISO Alpha-3)",
+        "country_help": "z.B., DEU, FRA, ITA, ESP",
+        "date_start_label": "📆 Veröffentlichung Start",
+        "date_end_label": "📆 Veröffentlichung Ende",
+        "search_button": "🔍 Ausschreibungen suchen",
+        
+        # Errors and warnings
+        "error_no_keywords": "❌ Bitte geben Sie entweder Schlüsselwörter oder CPV-Codes ein (oder beides)!",
+        "searching": "Durchsuche TED-Datenbank... Dies kann einige Minuten dauern.",
+        "success_found": "✅ {count} Ausschreibungen gefunden!",
+        "warning_no_results": "⚠️ Keine Ergebnisse gefunden. Versuchen Sie, Ihre Suchkriterien anzupassen.",
+        "error_search": "❌ Fehler bei der Suche: {error}",
+        
+        # Results section
+        "results_header": "📊 Suchergebnisse",
+        "total_results": "📈 Gesamtergebnisse: **{count}** Ausschreibungen",
+        "filter_results": "🎯 Ergebnisse filtern",
+        "filter_beschaffer": "✅ Nach Beschaffer filtern (Mehrfachauswahl)",
+        "filter_beschaffer_help": "Wählen Sie mehrere Auftraggeber mit Checkboxen aus",
+        "filter_region": "✅ Nach Region filtern (Mehrfachauswahl)",
+        "filter_region_help": "Wählen Sie mehrere Standorte mit Checkboxen aus",
+        "filter_volume": "Min. Volumen (EUR)",
+        "filter_volume_placeholder": "z.B., 100000",
+        "filter_projektstart": "🗓️ Projektstart",
+        "filter_projektstart_help": "Ausschreibungen mit Projektstart an oder nach diesem Datum filtern",
+        "filter_projektende": "🗓️ Projektende",
+        "filter_projektende_help": "Ausschreibungen mit Projektende an oder vor diesem Datum filtern",
+        "filter_frist": "⏰ Abgabefrist",
+        "filter_frist_help": "Ausschreibungen mit Abgabefrist an oder nach diesem Datum filtern",
+        "filtered_results": "🎯 Gefilterte Ergebnisse: **{count}** Ausschreibungen",
+        "warning_volume": "⚠️ Ungültiger Volumenfilter",
+        
+        # Download buttons
+        "download_filtered": "⬇️ Gefilterte Ergebnisse herunterladen ({count} Ausschreibungen)",
+        "download_all": "⬇️ Alle Ergebnisse herunterladen ({count} Ausschreibungen)",
+        
+        # Chatbot section
+        "config_header": "## 🔑 Konfiguration",
+        "azure_connected": "✅ Azure AI Verbunden",
+        "azure_warning": "⚠️ Azure-Anmeldedaten fehlen",
+        "doc_library": "## 📚 Dokumentenbibliothek",
+        "doc_optional": "Optional: Dateien für Kontext hochladen",
+        "clear_chat": "🗑️ Chat leeren",
+        "azure_error": "❌ Azure AI Foundry-Anmeldedaten nicht konfiguriert!",
+        "azure_info": "**Zu `.streamlit/secrets.toml` hinzufügen:**",
+        "welcome_header": "👋 **Willkommen beim JKM AI Assistent!**",
+        "welcome_text": "Ich bin Ihr KI-Assistent und kann Ihnen bei verschiedenen Aufgaben helfen.",
+        "possibilities": "**Möglichkeiten:**",
+        "possibility_1": "- 💬 Allgemeine Fragen beantworten",
+        "possibility_2": "- 📄 Dokumente analysieren (PDF, Word, TXT)",
+        "possibility_3": "- 🔍 Ausschreibungen prüfen",
+        "possibility_4": "- ✍️ Texte schreiben und übersetzen",
+        "ask_question": "Stellen Sie mir einfach eine Frage!",
+        "file_upload": "📎 Datei hier ablegen oder zum Durchsuchen klicken",
+        "file_help": "Dokumente, Excel-Dateien oder Bilder hochladen",
+        "file_added": "✅ {filename} hinzugefügt",
+        "chat_input": "Nachricht an JKM AI Assistent...",
+        "thinking": "💭 KI denkt nach",
+        "error_check_config": "Bitte überprüfen Sie Ihre Azure-Konfiguration in secrets.toml",
+        "processing": "Verarbeite {filename}...",
+        "query_label": "🔍 Abfrage: `{query}`",
+    }
+}
+
+def t(key, **kwargs):
+    """Translation helper function"""
+    lang = st.session_state.get("language", "en")
+    text = TRANSLATIONS.get(lang, TRANSLATIONS["en"]).get(key, key)
+    if kwargs:
+        text = text.format(**kwargs)
+    return text
+
 # ------------------- CONFIGURATION -------------------
 def get_secret(key, default=""):
     """Safely get secrets with fallback"""
@@ -147,31 +347,23 @@ def auth_flow():
 
 # ---------------- TED SCRAPER FUNCTIONS ----------------
 def fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_country, json_file):
-    """
-    Fetch TED notices with CORRECT TED API v3 query syntax
-    """
+    """Fetch TED notices with CORRECT TED API v3 query syntax"""
     query_parts = []
     
-    # Date range - REQUIRED
     query_parts.append(f"(publication-date >={date_start}<={date_end})")
-    
-    # Buyer country - REQUIRED
     query_parts.append(f"(buyer-country IN ({buyer_country}))")
     
-    # CPV codes - OPTIONAL
     if cpv_codes and cpv_codes.strip():
         query_parts.append(f"(classification-cpv IN ({cpv_codes}))")
     
-    # Keywords - OPTIONAL
     if keywords and keywords.strip():
         clean_keywords = keywords.strip().replace('"', '').replace("'", "")
         query_parts.append(f"(FT~({clean_keywords}))")
     
-    # Notice types
     query_parts.append("(notice-type IN (pin-cfc-standard pin-cfc-social qu-sy cn-standard cn-social subco cn-desg))")
     
     query = " AND ".join(query_parts)
-    st.info(f"🔍 Query: `{query}`")
+    st.info(t("query_label", query=query))
     
     payload = {
         "query": query,
@@ -468,7 +660,7 @@ def main_scraper(cpv_codes, keywords, date_start, date_end, buyer_country):
     count = fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_country, temp_json)
     
     if count == 0:
-        st.warning("⚠️ No notices found matching your criteria.")
+        st.warning(t("warning_no_results"))
         return []
     
     with open(temp_json, "r", encoding="utf-8") as f:
@@ -622,6 +814,10 @@ def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_n
 def main():
     st.set_page_config(page_title="TED Scraper & AI Assistant", layout="wide", initial_sidebar_state="collapsed")
     
+    # Initialize language in session state
+    if "language" not in st.session_state:
+        st.session_state.language = "en"
+    
     st.markdown("""
     <style>
     [data-testid="stAppViewContainer"] { background-color: #343541; }
@@ -659,156 +855,169 @@ def main():
     
     auth_flow()
     
+    # Language switcher in top right corner
+    header_col1, header_col2, header_col3 = st.columns([6, 1, 1])
+    with header_col1:
+        st.title(t("title"))
+    with header_col3:
+        selected_lang = st.selectbox(
+            t("language"),
+            options=["English", "Deutsch"],
+            index=0 if st.session_state.language == "en" else 1,
+            key="lang_selector",
+            label_visibility="collapsed"
+        )
+        # Update language when changed
+        new_lang = "en" if selected_lang == "English" else "de"
+        if new_lang != st.session_state.language:
+            st.session_state.language = new_lang
+            st.rerun()
+    
     if "scraped_data" not in st.session_state:
         st.session_state.scraped_data = None
     
-    tab1, tab2 = st.tabs(["📄 TED Scraper", "💬 AI Assistant"])
+    tab1, tab2 = st.tabs([t("tab_scraper"), t("tab_assistant")])
     
     # ============= TAB 1: TED SCRAPER =============
     with tab1:
-        st.header("📄 TED EU Notice Scraper")
-        st.write("Search and filter TED procurement notices before downloading.")
+        st.header(t("scraper_header"))
+        st.write(t("scraper_subtitle"))
         
-        with st.expander("ℹ️ How this works / Instructions", expanded=False):
-            st.write("""
-            **FEATURES:**
-            - 🔍 Search by **keywords** (single or multi-word) OR **CPV codes** OR **both**
-            - 👀 **Preview results** before downloading
-            - 🎯 **Multi-select filters** - Select multiple Beschaffer or Regions with checkboxes!
-            - ⬇️ **Download only filtered data**
+        with st.expander(t("instructions_header"), expanded=False):
+            st.write(f"""
+            {t("features_title")}
+            {t("feature_1")}
+            {t("feature_2")}
+            {t("feature_3")}
+            {t("feature_4")}
             
-            **Keywords Examples:**
-            - Single word: `construction` ✅
-            - Multi-word: `project management` ✅
+            {t("keywords_examples")}
+            {t("example_1")}
+            {t("example_2")}
             
-            **Multi-Select Filters:**
-            - Click dropdown and tick multiple options
-            - Filter by multiple contractors or locations at once
+            {t("multiselect_info")}
+            {t("multiselect_1")}
+            {t("multiselect_2")}
             """)
 
-        st.subheader("🔍 Search Criteria")
+        st.subheader(t("search_criteria"))
         
         col1, col2 = st.columns(2)
         with col1:
             keywords = st.text_input(
-                "🔤 Keywords (single or multi-word)",
-                placeholder="e.g., project management, quality assurance",
-                help="Single words or phrases work!"
+                t("keywords_label"),
+                placeholder=t("keywords_placeholder"),
+                help=t("keywords_help")
             )
         with col2:
             cpv_codes = st.text_input(
-                "🏷️ CPV Codes (space separated)",
+                t("cpv_label"),
                 "71541000 71500000 71240000 79421000 71000000 71248000 71312000 71700000 71300000 71520000 71250000 90712000 71313000",
-                help="Classification codes. Leave empty to search by keywords only."
+                help=t("cpv_help")
             )
 
         col3, col4 = st.columns(2)
         with col3:
-            buyer_country = st.text_input("🌍 Buyer Country (ISO Alpha-3)", "DEU", help="e.g., DEU, FRA, ITA, ESP")
+            buyer_country = st.text_input(t("country_label"), "DEU", help=t("country_help"))
         with col4:
             today = date.today()
             date_col1, date_col2 = st.columns(2)
             with date_col1:
-                start_date_obj = st.date_input("📆 Publication Start", value=today)
+                start_date_obj = st.date_input(t("date_start_label"), value=today)
             with date_col2:
-                end_date_obj = st.date_input("📆 Publication End", value=today)
+                end_date_obj = st.date_input(t("date_end_label"), value=today)
 
         date_start = start_date_obj.strftime("%Y%m%d")
         date_end = end_date_obj.strftime("%Y%m%d")
 
-        if st.button("🔍 Search Notices", type="primary"):
+        if st.button(t("search_button"), type="primary"):
             if not keywords.strip() and not cpv_codes.strip():
-                st.error("❌ Please enter either keywords or CPV codes (or both)!")
+                st.error(t("error_no_keywords"))
             else:
-                with st.spinner("Searching TED database... This may take a few minutes."):
+                with st.spinner(t("searching")):
                     try:
                         rows = main_scraper(cpv_codes, keywords, date_start, date_end, buyer_country)
                         st.session_state.scraped_data = rows
                         if len(rows) > 0:
-                            st.success(f"✅ Found {len(rows)} notices!")
+                            st.success(t("success_found", count=len(rows)))
                         else:
-                            st.warning("⚠️ No results found. Try adjusting your search criteria.")
+                            st.warning(t("warning_no_results"))
                     except Exception as e:
-                        st.error(f"❌ Error during search: {e}")
+                        st.error(t("error_search", error=str(e)))
                         import traceback
                         st.code(traceback.format_exc())
 
         # Display results with MULTISELECT filtering
         if st.session_state.scraped_data:
             st.markdown("---")
-            st.subheader("📊 Search Results")
+            st.subheader(t("results_header"))
             
             df = pd.DataFrame(st.session_state.scraped_data)
-            st.info(f"📈 Total Results: **{len(df)}** notices")
+            st.info(t("total_results", count=len(df)))
             
-            # NEW: Enhanced filters with MULTISELECT
-            with st.expander("🎯 Filter Results", expanded=True):
+            with st.expander(t("filter_results"), expanded=True):
                 filter_row1_col1, filter_row1_col2, filter_row1_col3 = st.columns(3)
                 
                 with filter_row1_col1:
-                    # MULTISELECT for Beschaffer
                     if "Beschaffer" in df.columns:
                         beschaffer_options = sorted(df["Beschaffer"].dropna().unique().tolist())
                         selected_beschaffer = st.multiselect(
-                            "✅ Filter by Beschaffer (Multi-select)",
+                            t("filter_beschaffer"),
                             options=beschaffer_options,
                             default=[],
-                            help="Select multiple contractors using checkboxes"
+                            help=t("filter_beschaffer_help")
                         )
                     else:
                         selected_beschaffer = []
                 
                 with filter_row1_col2:
-                    # MULTISELECT for Region
                     if "Ort/Region" in df.columns:
                         region_options = sorted(df["Ort/Region"].dropna().unique().tolist())
                         selected_regions = st.multiselect(
-                            "✅ Filter by Region (Multi-select)",
+                            t("filter_region"),
                             options=region_options,
                             default=[],
-                            help="Select multiple locations using checkboxes"
+                            help=t("filter_region_help")
                         )
                     else:
                         selected_regions = []
                 
                 with filter_row1_col3:
                     if "Projektvolumen" in df.columns:
-                        volume_filter = st.text_input("Min Volume (EUR)", placeholder="e.g., 100000")
+                        volume_filter = st.text_input(t("filter_volume"), placeholder=t("filter_volume_placeholder"))
                     else:
                         volume_filter = ""
                 
-                st.markdown("**📅 Date Filters**")
+                st.markdown(t("date_filters"))
                 filter_row2_col1, filter_row2_col2, filter_row2_col3 = st.columns(3)
                 
                 with filter_row2_col1:
                     filter_projektstart = st.date_input(
-                        "🗓️ Min Projektstart",
+                        t("filter_projektstart"),
                         value=None,
-                        help="Filter notices with project start date on or after this date"
+                        help=t("filter_projektstart_help")
                     )
                 
                 with filter_row2_col2:
                     filter_projektende = st.date_input(
-                        "🗓️ Max Projektende",
+                        t("filter_projektende"),
                         value=None,
-                        help="Filter notices with project end date on or before this date"
+                        help=t("filter_projektende_help")
                     )
                 
                 with filter_row2_col3:
                     filter_frist = st.date_input(
-                        "⏰ Min Frist Abgabedatum",
+                        t("filter_frist"),
                         value=None,
-                        help="Filter notices with submission deadline on or after this date"
+                        help=t("filter_frist_help")
                     )
             
             # Apply filters
             filtered_df = df.copy()
             
-            # MULTISELECT filter for Beschaffer
             if selected_beschaffer:
                 filtered_df = filtered_df[filtered_df["Beschaffer"].isin(selected_beschaffer)]
             
-            # MULTISELECT filter for Region
             if selected_regions:
                 filtered_df = filtered_df[filtered_df["Ort/Region"].isin(selected_regions)]
             
@@ -819,7 +1028,7 @@ def main():
                     filtered_df = filtered_df[filtered_df["volume_numeric"] >= min_volume]
                     filtered_df = filtered_df.drop(columns=["volume_numeric"])
                 except:
-                    st.warning("⚠️ Invalid volume filter")
+                    st.warning(t("warning_volume"))
             
             if filter_projektstart:
                 filtered_df["projektstart_date"] = pd.to_datetime(filtered_df["Projektstart"], errors='coerce')
@@ -845,7 +1054,7 @@ def main():
                 ]
                 filtered_df = filtered_df.drop(columns=["frist_date"])
             
-            st.info(f"🎯 Filtered Results: **{len(filtered_df)}** notices")
+            st.info(t("filtered_results", count=len(filtered_df)))
             
             st.dataframe(
                 filtered_df,
@@ -868,7 +1077,7 @@ def main():
                             
                             with open(temp_excel.name, "rb") as f:
                                 st.download_button(
-                                    label=f"⬇️ Download Filtered Results ({len(filtered_df)} notices)",
+                                    label=t("download_filtered", count=len(filtered_df)),
                                     data=f.read(),
                                     file_name=f"ted_filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -886,7 +1095,7 @@ def main():
                         
                         with open(temp_excel.name, "rb") as f:
                             st.download_button(
-                                label=f"⬇️ Download All Results ({len(df)} notices)",
+                                label=t("download_all", count=len(df)),
                                 data=f.read(),
                                 file_name=f"ted_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -896,7 +1105,7 @@ def main():
                         if os.path.exists(temp_excel.name):
                             os.remove(temp_excel.name)
     
-    # ============= TAB 2: CHATBOT (unchanged) =============
+    # ============= TAB 2: CHATBOT =============
     with tab2:
         with st.sidebar:
             azure_endpoint = get_secret("AZURE_ENDPOINT", "")
@@ -904,9 +1113,9 @@ def main():
             deployment_name = get_secret("DEPLOYMENT_NAME", "gpt-4o-mini")
             api_version = "2024-08-01-preview"
             
-            st.markdown("## 🔑 Configuration")
+            st.markdown(t("config_header"))
             if azure_endpoint and azure_key:
-                st.success("✅ Azure AI Connected")
+                st.success(t("azure_connected"))
                 try:
                     masked_endpoint = azure_endpoint.replace("https://", "").split(".")[0]
                     st.info(f"🔗 {masked_endpoint}")
@@ -914,11 +1123,11 @@ def main():
                     st.info("🔗 Endpoint configured")
                 st.info(f"🤖 {deployment_name}")
             else:
-                st.warning("⚠️ Azure credentials missing")
+                st.warning(t("azure_warning"))
             
             st.markdown("---")
-            st.markdown("## 📚 Document Library")
-            st.caption("Optional: Upload files for context")
+            st.markdown(t("doc_library"))
+            st.caption(t("doc_optional"))
             
             if "document_store" not in st.session_state:
                 st.session_state.document_store = {}
@@ -928,18 +1137,18 @@ def main():
                 type=['pdf', 'docx', 'txt', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg'],
                 accept_multiple_files=True,
                 key="library_uploader",
-                help="Upload PDFs, Word, Excel, or image files",
+                help=t("file_help"),
                 label_visibility="collapsed"
             )
             
             if library_files:
                 for uploaded_file in library_files:
                     if uploaded_file.name not in st.session_state.document_store:
-                        with st.spinner(f"Processing {uploaded_file.name}..."):
+                        with st.spinner(t("processing", filename=uploaded_file.name)):
                             text = process_uploaded_file(uploaded_file)
                             if text:
                                 st.session_state.document_store[uploaded_file.name] = text
-                                st.success(f"✅ {uploaded_file.name}")
+                                st.success(t("file_added", filename=uploaded_file.name))
             
             if st.session_state.document_store:
                 st.markdown(f"**📁 {len(st.session_state.document_store)} document(s)**")
@@ -953,14 +1162,13 @@ def main():
                             st.rerun()
             
             st.markdown("---")
-            if st.button("🗑️ Clear Chat", use_container_width=True):
+            if st.button(t("clear_chat"), use_container_width=True):
                 st.session_state.chat_messages = []
                 st.rerun()
         
         if not azure_endpoint or not azure_key:
-            st.error("❌ Azure AI Foundry credentials not configured!")
-            st.info("""
-            **Add to `.streamlit/secrets.toml`:**
+            st.error(t("azure_error"))
+            st.info(t("azure_info") + """
             ```
             AZURE_ENDPOINT = "https://your-resource.openai.azure.com"
             AZURE_API_KEY = "your-api-key"
@@ -973,18 +1181,18 @@ def main():
             
             if not st.session_state.chat_messages:
                 with st.chat_message("assistant", avatar=JKM_LOGO_URL):
-                    st.markdown("""
-                    👋 **Willkommen beim JKM AI Assistant!**
+                    st.markdown(f"""
+                    {t("welcome_header")}
                     
-                    Ich bin Ihr KI-Assistent und kann Ihnen bei verschiedenen Aufgaben helfen.
+                    {t("welcome_text")}
                     
-                    **Möglichkeiten:**
-                    - 💬 Allgemeine Fragen beantworten
-                    - 📄 Dokumente analysieren (PDF, Word, TXT)
-                    - 🔍 Ausschreibungen prüfen
-                    - ✍️ Texte schreiben und übersetzen
+                    {t("possibilities")}
+                    {t("possibility_1")}
+                    {t("possibility_2")}
+                    {t("possibility_3")}
+                    {t("possibility_4")}
                     
-                    Stellen Sie mir einfach eine Frage!
+                    {t("ask_question")}
                     """)
             
             for message in st.session_state.chat_messages:
@@ -994,22 +1202,22 @@ def main():
             
             st.markdown("---")
             quick_file = st.file_uploader(
-                "📎 Drag and drop file here or click to browse", 
+                t("file_upload"), 
                 type=['pdf', 'docx', 'txt', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg'],
                 key="quick_uploader",
-                help="Upload documents, Excel files, or images"
+                help=t("file_help")
             )
             
             if quick_file:
                 if quick_file.name not in st.session_state.document_store:
-                    with st.spinner(f"Processing {quick_file.name}..."):
+                    with st.spinner(t("processing", filename=quick_file.name)):
                         text = process_uploaded_file(quick_file)
                         if text:
                             st.session_state.document_store[quick_file.name] = text
-                            st.success(f"✅ {quick_file.name} added")
+                            st.success(t("file_added", filename=quick_file.name))
                             st.rerun()
             
-            if prompt := st.chat_input("Message JKM AI Assistant..."):
+            if prompt := st.chat_input(t("chat_input")):
                 context_parts = []
                 
                 if st.session_state.document_store:
@@ -1025,7 +1233,7 @@ def main():
                 
                 with st.chat_message("assistant", avatar=JKM_LOGO_URL):
                     thinking_placeholder = st.empty()
-                    thinking_placeholder.markdown('<div class="thinking-indicator"><span class="thinking-dots">💭 AI denkt nach</span></div>', unsafe_allow_html=True)
+                    thinking_placeholder.markdown(f'<div class="thinking-indicator"><span class="thinking-dots">{t("thinking")}</span></div>', unsafe_allow_html=True)
                     
                     if context_parts:
                         full_context = "\n\n".join(context_parts)
@@ -1082,7 +1290,7 @@ INSTRUCTIONS:
                     except Exception as e:
                         thinking_placeholder.empty()
                         st.error(f"❌ Error: {str(e)}")
-                        st.info("Please check your Azure configuration in secrets.toml")
+                        st.info(t("error_check_config"))
 
 if __name__ == "__main__":
     main()
