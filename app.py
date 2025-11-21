@@ -148,7 +148,7 @@ def auth_flow():
 # ---------------- TED SCRAPER FUNCTIONS ----------------
 def fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_country, json_file):
     """
-    Fetch TED notices with CORRECTED multi-word keyword support
+    Fetch TED notices with CORRECTED query parameter name
     """
     query_parts = []
     
@@ -169,35 +169,29 @@ def fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_c
     
     # Keywords - OPTIONAL (FIXED for multi-word support)
     if keywords and keywords.strip():
-        # Clean keywords
         clean_keywords = keywords.strip().replace('"', '').replace("'", "")
         
-        # Use ~ operator for multi-word searches (treats spaces as AND)
-        # This handles both single words and multi-word phrases
+        # Use ~ operator for multi-word searches
         if ' ' in clean_keywords:
-            # Multi-word: use ~ with parentheses
             query_parts.append(f"TD~({clean_keywords})")
         else:
-            # Single word: use = operator
             query_parts.append(f"TD=[{clean_keywords}]")
     
-    # Notice types - business opportunities
+    # Notice types
     query_parts.append("TD=[pin-cfc-standard or pin-cfc-social or qu-sy or cn-standard or cn-social or subco or cn-desg]")
     
-    # Join with AND
     query = " AND ".join(query_parts)
-    
-    # Show query for debugging
     st.info(f"🔍 Query: `{query}`")
     
+    # CORRECTED: Use "query" not "q"
     payload = {
-        "q": query,
-        "fields": ["ND", "PD", "CONTENT"],
-        "scope": 2,
-        "pageNum": 1,
-        "pageSize": 100,
-        "reverseOrder": False,
-        "sortField": "PD"
+        "query": query,  # ✅ FIXED: was "q", now "query"
+        "fields": ["publication-number", "links"],
+        "scope": "ACTIVE",
+        "checkQuerySyntax": False,
+        "paginationMode": "PAGE_NUMBER",
+        "page": 1,
+        "limit": 100
     }
     
     s = requests.Session()
@@ -211,26 +205,26 @@ def fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_c
     
     while True:
         body = dict(payload)
-        body["pageNum"] = page
+        body["page"] = page
         
         try:
             r = s.post(API, json=body, timeout=60)
             
             if r.status_code != 200:
                 st.error(f"❌ API Error {r.status_code}")
-                st.code(r.text[:500])  # Show first 500 chars
+                st.code(r.text[:500])
                 r.raise_for_status()
             
             data = r.json()
-            notices = data.get("notices", [])
+            notices = data.get("results") or data.get("items") or data.get("notices") or []
             
             if not notices:
                 break
             
             all_notices.extend(notices)
             
-            total = data.get("total", 0)
-            if len(all_notices) >= total:
+            total = data.get("total") or data.get("totalCount")
+            if not notices or (total and page * payload["limit"] >= total):
                 break
             
             page += 1
@@ -479,9 +473,7 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
     return out
 
 def main_scraper(cpv_codes, keywords, date_start, date_end, buyer_country):
-    """
-    Modified to return rows instead of saving to Excel directly
-    """
+    """Modified to return rows instead of saving to Excel directly"""
     temp_json = tempfile.mktemp(suffix=".json")
     
     count = fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_country, temp_json)
@@ -502,7 +494,7 @@ def main_scraper(cpv_codes, keywords, date_start, date_end, buyer_country):
     status_text = st.empty()
     
     for idx, n in enumerate(notices):
-        pubno = n.get("ND") or n.get("publication-number")
+        pubno = n.get("publication-number")
         if not pubno:
             continue
         
@@ -554,7 +546,7 @@ def save_to_excel(rows, output_excel):
     ws.add_table(table)
     wb.save(output_excel)
 
-# ---------------- CHATBOT FUNCTIONS ----------------
+# ---------------- CHATBOT FUNCTIONS (keep all unchanged) ----------------
 def extract_text_from_pdf(file):
     try:
         pdf_reader = PyPDF2.PdfReader(file)
@@ -583,18 +575,15 @@ def extract_text_from_txt(file):
 def extract_text_from_excel(file):
     try:
         file_extension = file.name.split('.')[-1].lower()
-        
         if file_extension == 'csv':
             df = pd.read_csv(file)
         else:
             df = pd.read_excel(file)
-        
         text = f"Excel File: {file.name}\n"
         text += f"Rows: {len(df)}, Columns: {len(df.columns)}\n\n"
         text += f"Column Names: {', '.join(df.columns.tolist())}\n\n"
         text += "Data Preview (first 50 rows):\n"
         text += df.head(50).to_string(index=False)
-        
         return text
     except Exception as e:
         return f"Error reading Excel file: {str(e)}"
@@ -602,20 +591,17 @@ def extract_text_from_excel(file):
 def extract_text_from_image(file):
     try:
         image = Image.open(file)
-        
         text = f"Image File: {file.name}\n"
         text += f"Format: {image.format}\n"
         text += f"Size: {image.size[0]}x{image.size[1]} pixels\n"
         text += f"Mode: {image.mode}\n\n"
         text += "Note: Image uploaded. Ask questions about its content."
-        
         return text
     except Exception as e:
         return f"Error reading image: {str(e)}"
 
 def process_uploaded_file(uploaded_file):
     file_extension = uploaded_file.name.split('.')[-1].lower()
-    
     if file_extension == 'pdf':
         return extract_text_from_pdf(uploaded_file)
     elif file_extension == 'docx':
@@ -635,7 +621,6 @@ def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_n
         api_key=azure_key,
         api_version=api_version
     )
-    
     stream = client.chat.completions.create(
         model=deployment_name,
         messages=messages,
@@ -648,195 +633,46 @@ def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_n
 def main():
     st.set_page_config(page_title="TED Scraper & AI Assistant", layout="wide", initial_sidebar_state="collapsed")
     
-    # ChatGPT-style Custom CSS
     st.markdown("""
     <style>
-    [data-testid="stAppViewContainer"] {
-        background-color: #343541;
-    }
-    
-    [data-testid="stHeader"] {
-        background-color: #343541;
-    }
-    
-    [data-testid="stSidebar"] {
-        background-color: #202123;
-    }
-    
-    .main .block-container {
-        padding-top: 2rem !important;
-        padding-bottom: 2rem !important;
-        max-width: 48rem !important;
-        margin: 0 auto !important;
-    }
-    
-    .stChatMessage {
-        background-color: transparent !important;
-        padding: 1.5rem 0 !important;
-    }
-    
-    [data-testid="stChatMessageContent"] {
-        background-color: #444654 !important;
-        border-radius: 0.5rem;
-        padding: 1rem 1.5rem !important;
-        color: #ececf1 !important;
-    }
-    
-    [data-testid="stChatMessage"][data-testid*="user"] [data-testid="stChatMessageContent"] {
-        background-color: #343541 !important;
-    }
-    
-    .thinking-indicator {
-        font-style: italic;
-        color: #8e8ea0;
-        font-size: 0.9rem;
-        padding: 0.5rem 0;
-    }
-    
-    .thinking-dots::after {
-        content: '...';
-        animation: dots 1.5s steps(4, end) infinite;
-    }
-    
-    @keyframes dots {
-        0%, 20% { content: '.'; }
-        40% { content: '..'; }
-        60%, 100% { content: '...'; }
-    }
-    
-    [data-testid="stChatInput"] textarea {
-        background-color: #40414f !important;
-        color: #ececf1 !important;
-        border: 1px solid #565869 !important;
-        border-radius: 0.75rem !important;
-        padding: 0.75rem 1rem !important;
-        font-size: 1rem !important;
-        min-height: 52px !important;
-        max-height: 200px !important;
-        line-height: 1.5 !important;
-        resize: none !important;
-    }
-    
-    [data-testid="stChatInput"] textarea:focus {
-        border-color: #10a37f !important;
-        box-shadow: 0 0 0 1px #10a37f !important;
-        outline: none !important;
-    }
-    
-    [data-testid="stChatInput"] > div {
-        background-color: transparent !important;
-        border: none !important;
-    }
-    
-    .stMarkdown, .stText {
-        color: #ececf1 !important;
-    }
-    
-    h1, h2, h3, h4, h5, h6 {
-        color: #ececf1 !important;
-    }
-    
-    .stButton button {
-        background-color: #10a37f !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 0.375rem !important;
-        padding: 0.5rem 1rem !important;
-        font-weight: 500 !important;
-    }
-    
-    .stButton button:hover {
-        background-color: #1a7f64 !important;
-    }
-    
-    [data-testid="stChatMessage"] img {
-        border-radius: 0.25rem !important;
-        width: 32px !important;
-        height: 32px !important;
-    }
-    
-    .stSuccess, .stInfo, .stWarning {
-        background-color: #444654 !important;
-        color: #ececf1 !important;
-        border-radius: 0.5rem !important;
-    }
-    
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 2rem;
-        background-color: #343541;
-        border-bottom: 1px solid #565869;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        color: #ececf1 !important;
-        background-color: transparent;
-        border-bottom: 2px solid transparent;
-        padding: 1rem 0;
-        font-weight: 500;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        border-bottom-color: #10a37f !important;
-        color: #10a37f !important;
-    }
-    
-    .stTextInput input, .stDateInput input, .stSelectbox select {
-        background-color: #40414f !important;
-        color: #ececf1 !important;
-        border: 1px solid #565869 !important;
-        border-radius: 0.375rem !important;
-    }
-    
-    label {
-        color: #ececf1 !important;
-    }
-    
-    .stDownloadButton button {
-        background-color: #10a37f !important;
-        color: white !important;
-    }
-    
-    .streamlit-expanderHeader {
-        background-color: #444654 !important;
-        color: #ececf1 !important;
-        border-radius: 0.5rem !important;
-    }
-    
-    [data-testid="stFileUploader"] {
-        background-color: transparent !important;
-        border: none !important;
-        padding: 0 !important;
-        margin-bottom: 1rem !important;
-    }
-    
-    [data-testid="stFileUploader"] section {
-        border: 1px dashed #565869 !important;
-        border-radius: 0.5rem !important;
-        padding: 0.75rem !important;
-        background-color: #40414f !important;
-    }
-    
-    [data-testid="stFileUploader"] button {
-        background-color: #565869 !important;
-        color: #ececf1 !important;
-        font-size: 0.875rem !important;
-        padding: 0.25rem 0.5rem !important;
-    }
-    
-    [data-testid="stDataFrame"] {
-        background-color: #40414f !important;
-    }
+    [data-testid="stAppViewContainer"] { background-color: #343541; }
+    [data-testid="stHeader"] { background-color: #343541; }
+    [data-testid="stSidebar"] { background-color: #202123; }
+    .main .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; max-width: 48rem !important; margin: 0 auto !important; }
+    .stChatMessage { background-color: transparent !important; padding: 1.5rem 0 !important; }
+    [data-testid="stChatMessageContent"] { background-color: #444654 !important; border-radius: 0.5rem; padding: 1rem 1.5rem !important; color: #ececf1 !important; }
+    [data-testid="stChatMessage"][data-testid*="user"] [data-testid="stChatMessageContent"] { background-color: #343541 !important; }
+    .thinking-indicator { font-style: italic; color: #8e8ea0; font-size: 0.9rem; padding: 0.5rem 0; }
+    .thinking-dots::after { content: '...'; animation: dots 1.5s steps(4, end) infinite; }
+    @keyframes dots { 0%, 20% { content: '.'; } 40% { content: '..'; } 60%, 100% { content: '...'; } }
+    [data-testid="stChatInput"] textarea { background-color: #40414f !important; color: #ececf1 !important; border: 1px solid #565869 !important; border-radius: 0.75rem !important; padding: 0.75rem 1rem !important; font-size: 1rem !important; min-height: 52px !important; max-height: 200px !important; line-height: 1.5 !important; resize: none !important; }
+    [data-testid="stChatInput"] textarea:focus { border-color: #10a37f !important; box-shadow: 0 0 0 1px #10a37f !important; outline: none !important; }
+    [data-testid="stChatInput"] > div { background-color: transparent !important; border: none !important; }
+    .stMarkdown, .stText { color: #ececf1 !important; }
+    h1, h2, h3, h4, h5, h6 { color: #ececf1 !important; }
+    .stButton button { background-color: #10a37f !important; color: white !important; border: none !important; border-radius: 0.375rem !important; padding: 0.5rem 1rem !important; font-weight: 500 !important; }
+    .stButton button:hover { background-color: #1a7f64 !important; }
+    [data-testid="stChatMessage"] img { border-radius: 0.25rem !important; width: 32px !important; height: 32px !important; }
+    .stSuccess, .stInfo, .stWarning { background-color: #444654 !important; color: #ececf1 !important; border-radius: 0.5rem !important; }
+    .stTabs [data-baseweb="tab-list"] { gap: 2rem; background-color: #343541; border-bottom: 1px solid #565869; }
+    .stTabs [data-baseweb="tab"] { color: #ececf1 !important; background-color: transparent; border-bottom: 2px solid transparent; padding: 1rem 0; font-weight: 500; }
+    .stTabs [aria-selected="true"] { border-bottom-color: #10a37f !important; color: #10a37f !important; }
+    .stTextInput input, .stDateInput input, .stSelectbox select { background-color: #40414f !important; color: #ececf1 !important; border: 1px solid #565869 !important; border-radius: 0.375rem !important; }
+    label { color: #ececf1 !important; }
+    .stDownloadButton button { background-color: #10a37f !important; color: white !important; }
+    .streamlit-expanderHeader { background-color: #444654 !important; color: #ececf1 !important; border-radius: 0.5rem !important; }
+    [data-testid="stFileUploader"] { background-color: transparent !important; border: none !important; padding: 0 !important; margin-bottom: 1rem !important; }
+    [data-testid="stFileUploader"] section { border: 1px dashed #565869 !important; border-radius: 0.5rem !important; padding: 0.75rem !important; background-color: #40414f !important; }
+    [data-testid="stFileUploader"] button { background-color: #565869 !important; color: #ececf1 !important; font-size: 0.875rem !important; padding: 0.25rem 0.5rem !important; }
+    [data-testid="stDataFrame"] { background-color: #40414f !important; }
     </style>
     """, unsafe_allow_html=True)
     
-    # Authentication guard
     auth_flow()
     
-    # Initialize session state
     if "scraped_data" not in st.session_state:
         st.session_state.scraped_data = None
     
-    # Create tabs
     tab1, tab2 = st.tabs(["📄 TED Scraper", "💬 AI Assistant"])
     
     # ============= TAB 1: TED SCRAPER =============
@@ -865,7 +701,6 @@ def main():
             5. Download filtered Excel file
             """)
 
-        # Search inputs
         st.subheader("🔍 Search Criteria")
         
         col1, col2 = st.columns(2)
@@ -873,7 +708,7 @@ def main():
             keywords = st.text_input(
                 "🔤 Keywords (single or multi-word)",
                 placeholder="e.g., project management, quality assurance",
-                help="Single words (construction) or phrases (project management) work!"
+                help="Single words or phrases work!"
             )
         with col2:
             cpv_codes = st.text_input(
@@ -896,7 +731,6 @@ def main():
         date_start = start_date_obj.strftime("%Y%m%d")
         date_end = end_date_obj.strftime("%Y%m%d")
 
-        # Search button
         if st.button("🔍 Search Notices", type="primary"):
             if not keywords.strip() and not cpv_codes.strip():
                 st.error("❌ Please enter either keywords or CPV codes (or both)!")
@@ -920,11 +754,8 @@ def main():
             st.subheader("📊 Search Results")
             
             df = pd.DataFrame(st.session_state.scraped_data)
-            
-            # Display count
             st.info(f"📈 Total Results: **{len(df)}** notices")
             
-            # NEW: Enhanced filters with date pickers
             with st.expander("🎯 Filter Results", expanded=True):
                 filter_row1_col1, filter_row1_col2, filter_row1_col3 = st.columns(3)
                 
@@ -948,7 +779,6 @@ def main():
                     else:
                         volume_filter = ""
                 
-                # NEW: Date filters row 2
                 st.markdown("**📅 Date Filters**")
                 filter_row2_col1, filter_row2_col2, filter_row2_col3 = st.columns(3)
                 
@@ -991,7 +821,6 @@ def main():
                 except:
                     st.warning("⚠️ Invalid volume filter")
             
-            # NEW: Date filters application
             if filter_projektstart:
                 filtered_df["projektstart_date"] = pd.to_datetime(filtered_df["Projektstart"], errors='coerce')
                 filtered_df = filtered_df[
@@ -1018,7 +847,6 @@ def main():
             
             st.info(f"🎯 Filtered Results: **{len(filtered_df)}** notices")
             
-            # Display dataframe
             st.dataframe(
                 filtered_df,
                 use_container_width=True,
@@ -1029,7 +857,6 @@ def main():
                 }
             )
             
-            # Download buttons
             col_dl1, col_dl2 = st.columns(2)
             
             with col_dl1:
@@ -1069,7 +896,7 @@ def main():
                         if os.path.exists(temp_excel.name):
                             os.remove(temp_excel.name)
     
-    # ============= TAB 2: CHATBOT (unchanged) =============
+    # ============= TAB 2: CHATBOT (keep all unchanged) =============
     with tab2:
         with st.sidebar:
             azure_endpoint = get_secret("AZURE_ENDPOINT", "")
@@ -1130,7 +957,6 @@ def main():
                 st.session_state.chat_messages = []
                 st.rerun()
         
-        # Main chat interface
         if not azure_endpoint or not azure_key:
             st.error("❌ Azure AI Foundry credentials not configured!")
             st.info("""
