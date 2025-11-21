@@ -148,44 +148,34 @@ def auth_flow():
 # ---------------- TED SCRAPER FUNCTIONS ----------------
 def fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_country, json_file):
     """
-    Fetch TED notices with CORRECTED query parameter name
+    Fetch TED notices with CORRECT TED API v3 query syntax
     """
     query_parts = []
     
-    # Date range - REQUIRED
-    query_parts.append(f"PD=[{date_start} <> {date_end}]")
+    # Date range - REQUIRED (use >= and <= operators)
+    query_parts.append(f"(publication-date >={date_start}<={date_end})")
     
-    # Buyer country - REQUIRED
-    query_parts.append(f"CY=[{buyer_country}]")
+    # Buyer country - REQUIRED (use IN operator with parentheses)
+    query_parts.append(f"(buyer-country IN ({buyer_country}))")
     
     # CPV codes - OPTIONAL
     if cpv_codes and cpv_codes.strip():
-        codes_list = cpv_codes.strip().split()
-        if len(codes_list) == 1:
-            query_parts.append(f"PC=[{codes_list[0]}]")
-        else:
-            codes_formatted = " or ".join(codes_list)
-            query_parts.append(f"PC=[{codes_formatted}]")
+        query_parts.append(f"(classification-cpv IN ({cpv_codes}))")
     
-    # Keywords - OPTIONAL (FIXED for multi-word support)
+    # Keywords - OPTIONAL (use FT with ~ operator for full-text search)
     if keywords and keywords.strip():
         clean_keywords = keywords.strip().replace('"', '').replace("'", "")
-        
-        # Use ~ operator for multi-word searches
-        if ' ' in clean_keywords:
-            query_parts.append(f"TD~({clean_keywords})")
-        else:
-            query_parts.append(f"TD=[{clean_keywords}]")
+        # Use ~ operator for phrase search (words together)
+        query_parts.append(f"(FT~({clean_keywords}))")
     
     # Notice types
-    query_parts.append("TD=[pin-cfc-standard or pin-cfc-social or qu-sy or cn-standard or cn-social or subco or cn-desg]")
+    query_parts.append("(notice-type IN (pin-cfc-standard pin-cfc-social qu-sy cn-standard cn-social subco cn-desg))")
     
     query = " AND ".join(query_parts)
     st.info(f"🔍 Query: `{query}`")
     
-    # CORRECTED: Use "query" not "q"
     payload = {
-        "query": query,  # ✅ FIXED: was "q", now "query"
+        "query": query,
         "fields": ["publication-number", "links"],
         "scope": "ACTIVE",
         "checkQuerySyntax": False,
@@ -242,6 +232,7 @@ def fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_c
         json.dump({"notices": all_notices}, f, ensure_ascii=False, indent=2)
     
     return len(all_notices)
+
 
 def _get_links_block(notice: dict) -> dict:
     links = notice.get("links") or {}
@@ -1086,3 +1077,4 @@ INSTRUCTIONS:
 
 if __name__ == "__main__":
     main()
+
