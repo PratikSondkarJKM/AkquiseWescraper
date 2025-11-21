@@ -65,9 +65,9 @@ TRANSLATIONS = {
         "results_header": "📊 Search Results",
         "total_results": "📈 Total Results: **{count}** notices",
         "filter_results": "🎯 Filter Results",
-        "filter_beschaffer": "✅ Filter by Beschaffer (Multi-select)",
+        "filter_beschaffer": "✅ Filter by Beschaffer",
         "filter_beschaffer_help": "Select multiple contractors using checkboxes",
-        "filter_region": "✅ Filter by Region (Multi-select)",
+        "filter_region": "✅ Filter by Region",
         "filter_region_help": "Select multiple locations using checkboxes",
         "filter_volume": "Min Volume (EUR)",
         "filter_volume_placeholder": "e.g., 100000",
@@ -159,9 +159,9 @@ TRANSLATIONS = {
         "results_header": "📊 Suchergebnisse",
         "total_results": "📈 Gesamtergebnisse: **{count}** Ausschreibungen",
         "filter_results": "🎯 Ergebnisse filtern",
-        "filter_beschaffer": "✅ Nach Beschaffer filtern (Mehrfachauswahl)",
+        "filter_beschaffer": "✅ Nach Beschaffer filtern",
         "filter_beschaffer_help": "Wählen Sie mehrere Auftraggeber mit Checkboxen aus",
-        "filter_region": "✅ Nach Region filtern (Mehrfachauswahl)",
+        "filter_region": "✅ Nach Region filtern",
         "filter_region_help": "Wählen Sie mehrere Standorte mit Checkboxen aus",
         "filter_volume": "Min. Volumen (EUR)",
         "filter_volume_placeholder": "z.B., 100000",
@@ -988,7 +988,6 @@ def main():
                     else:
                         volume_filter = ""
                 
-                st.markdown(t("date_filters"))
                 filter_row2_col1, filter_row2_col2, filter_row2_col3 = st.columns(3)
                 
                 with filter_row2_col1:
@@ -1294,3 +1293,4 @@ INSTRUCTIONS:
 
 if __name__ == "__main__":
     main()
+
