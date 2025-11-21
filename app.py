@@ -152,26 +152,26 @@ def fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_c
     """
     query_parts = []
     
-    # Date range - REQUIRED (use >= and <= operators)
+    # Date range - REQUIRED
     query_parts.append(f"(publication-date >={date_start}<={date_end})")
     
-    # Buyer country - REQUIRED (use IN operator with parentheses)
+    # Buyer country - REQUIRED
     query_parts.append(f"(buyer-country IN ({buyer_country}))")
     
     # CPV codes - OPTIONAL
     if cpv_codes and cpv_codes.strip():
         query_parts.append(f"(classification-cpv IN ({cpv_codes}))")
     
-    # Keywords - OPTIONAL (use FT with ~ operator for full-text search)
+    # Keywords - OPTIONAL
     if keywords and keywords.strip():
         clean_keywords = keywords.strip().replace('"', '').replace("'", "")
-        # Use ~ operator for phrase search (words together)
         query_parts.append(f"(FT~({clean_keywords}))")
     
     # Notice types
     query_parts.append("(notice-type IN (pin-cfc-standard pin-cfc-social qu-sy cn-standard cn-social subco cn-desg))")
     
     query = " AND ".join(query_parts)
+    st.info(f"🔍 Query: `{query}`")
     
     payload = {
         "query": query,
@@ -231,7 +231,6 @@ def fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_c
         json.dump({"notices": all_notices}, f, ensure_ascii=False, indent=2)
     
     return len(all_notices)
-
 
 def _get_links_block(notice: dict) -> dict:
     links = notice.get("links") or {}
@@ -647,7 +646,7 @@ def main():
     .stTabs [data-baseweb="tab-list"] { gap: 2rem; background-color: #343541; border-bottom: 1px solid #565869; }
     .stTabs [data-baseweb="tab"] { color: #ececf1 !important; background-color: transparent; border-bottom: 2px solid transparent; padding: 1rem 0; font-weight: 500; }
     .stTabs [aria-selected="true"] { border-bottom-color: #10a37f !important; color: #10a37f !important; }
-    .stTextInput input, .stDateInput input, .stSelectbox select { background-color: #40414f !important; color: #ececf1 !important; border: 1px solid #565869 !important; border-radius: 0.375rem !important; }
+    .stTextInput input, .stDateInput input, .stSelectbox select, .stMultiSelect select { background-color: #40414f !important; color: #ececf1 !important; border: 1px solid #565869 !important; border-radius: 0.375rem !important; }
     label { color: #ececf1 !important; }
     .stDownloadButton button { background-color: #10a37f !important; color: white !important; }
     .streamlit-expanderHeader { background-color: #444654 !important; color: #ececf1 !important; border-radius: 0.5rem !important; }
@@ -675,20 +674,16 @@ def main():
             **FEATURES:**
             - 🔍 Search by **keywords** (single or multi-word) OR **CPV codes** OR **both**
             - 👀 **Preview results** before downloading
-            - 🎯 **Filter results** by dates and other criteria
+            - 🎯 **Multi-select filters** - Select multiple Beschaffer or Regions with checkboxes!
             - ⬇️ **Download only filtered data**
             
             **Keywords Examples:**
             - Single word: `construction` ✅
             - Multi-word: `project management` ✅
-            - Multiple phrases: `quality management` ✅
             
-            **Steps:**
-            1. Enter your search criteria
-            2. Set date range and country
-            3. Click **🔍 Search Notices**
-            4. Review and filter results
-            5. Download filtered Excel file
+            **Multi-Select Filters:**
+            - Click dropdown and tick multiple options
+            - Filter by multiple contractors or locations at once
             """)
 
         st.subheader("🔍 Search Criteria")
@@ -738,7 +733,7 @@ def main():
                         import traceback
                         st.code(traceback.format_exc())
 
-        # Display results with filtering
+        # Display results with MULTISELECT filtering
         if st.session_state.scraped_data:
             st.markdown("---")
             st.subheader("📊 Search Results")
@@ -746,22 +741,35 @@ def main():
             df = pd.DataFrame(st.session_state.scraped_data)
             st.info(f"📈 Total Results: **{len(df)}** notices")
             
+            # NEW: Enhanced filters with MULTISELECT
             with st.expander("🎯 Filter Results", expanded=True):
                 filter_row1_col1, filter_row1_col2, filter_row1_col3 = st.columns(3)
                 
                 with filter_row1_col1:
+                    # MULTISELECT for Beschaffer
                     if "Beschaffer" in df.columns:
-                        beschaffer_options = ["All"] + sorted(df["Beschaffer"].dropna().unique().tolist())
-                        selected_beschaffer = st.selectbox("Filter by Beschaffer", beschaffer_options)
+                        beschaffer_options = sorted(df["Beschaffer"].dropna().unique().tolist())
+                        selected_beschaffer = st.multiselect(
+                            "✅ Filter by Beschaffer (Multi-select)",
+                            options=beschaffer_options,
+                            default=[],
+                            help="Select multiple contractors using checkboxes"
+                        )
                     else:
-                        selected_beschaffer = "All"
+                        selected_beschaffer = []
                 
                 with filter_row1_col2:
+                    # MULTISELECT for Region
                     if "Ort/Region" in df.columns:
-                        region_options = ["All"] + sorted(df["Ort/Region"].dropna().unique().tolist())
-                        selected_region = st.selectbox("Filter by Region", region_options)
+                        region_options = sorted(df["Ort/Region"].dropna().unique().tolist())
+                        selected_regions = st.multiselect(
+                            "✅ Filter by Region (Multi-select)",
+                            options=region_options,
+                            default=[],
+                            help="Select multiple locations using checkboxes"
+                        )
                     else:
-                        selected_region = "All"
+                        selected_regions = []
                 
                 with filter_row1_col3:
                     if "Projektvolumen" in df.columns:
@@ -769,25 +777,26 @@ def main():
                     else:
                         volume_filter = ""
                 
+                st.markdown("**📅 Date Filters**")
                 filter_row2_col1, filter_row2_col2, filter_row2_col3 = st.columns(3)
                 
                 with filter_row2_col1:
                     filter_projektstart = st.date_input(
-                        "🗓️ Projektstart",
+                        "🗓️ Min Projektstart",
                         value=None,
                         help="Filter notices with project start date on or after this date"
                     )
                 
                 with filter_row2_col2:
                     filter_projektende = st.date_input(
-                        "🗓️ Projektende",
+                        "🗓️ Max Projektende",
                         value=None,
                         help="Filter notices with project end date on or before this date"
                     )
                 
                 with filter_row2_col3:
                     filter_frist = st.date_input(
-                        "⏰ Frist Abgabedatum",
+                        "⏰ Min Frist Abgabedatum",
                         value=None,
                         help="Filter notices with submission deadline on or after this date"
                     )
@@ -795,11 +804,13 @@ def main():
             # Apply filters
             filtered_df = df.copy()
             
-            if selected_beschaffer != "All":
-                filtered_df = filtered_df[filtered_df["Beschaffer"] == selected_beschaffer]
+            # MULTISELECT filter for Beschaffer
+            if selected_beschaffer:
+                filtered_df = filtered_df[filtered_df["Beschaffer"].isin(selected_beschaffer)]
             
-            if selected_region != "All":
-                filtered_df = filtered_df[filtered_df["Ort/Region"] == selected_region]
+            # MULTISELECT filter for Region
+            if selected_regions:
+                filtered_df = filtered_df[filtered_df["Ort/Region"].isin(selected_regions)]
             
             if volume_filter:
                 try:
@@ -885,7 +896,7 @@ def main():
                         if os.path.exists(temp_excel.name):
                             os.remove(temp_excel.name)
     
-    # ============= TAB 2: CHATBOT (keep all unchanged) =============
+    # ============= TAB 2: CHATBOT (unchanged) =============
     with tab2:
         with st.sidebar:
             azure_endpoint = get_secret("AZURE_ENDPOINT", "")
@@ -1075,6 +1086,3 @@ INSTRUCTIONS:
 
 if __name__ == "__main__":
     main()
-
-
-
