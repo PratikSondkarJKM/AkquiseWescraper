@@ -770,26 +770,25 @@ def main():
                     else:
                         volume_filter = ""
                 
-                st.markdown("**📅 Date Filters**")
                 filter_row2_col1, filter_row2_col2, filter_row2_col3 = st.columns(3)
                 
                 with filter_row2_col1:
                     filter_projektstart = st.date_input(
-                        "🗓️ Min Projektstart",
+                        "🗓️ Projektstart",
                         value=None,
                         help="Filter notices with project start date on or after this date"
                     )
                 
                 with filter_row2_col2:
                     filter_projektende = st.date_input(
-                        "🗓️ Max Projektende",
+                        "🗓️ Projektende",
                         value=None,
                         help="Filter notices with project end date on or before this date"
                     )
                 
                 with filter_row2_col3:
                     filter_frist = st.date_input(
-                        "⏰ Min Frist Abgabedatum",
+                        "⏰ Frist Abgabedatum",
                         value=None,
                         help="Filter notices with submission deadline on or after this date"
                     )
@@ -1077,4 +1076,5 @@ INSTRUCTIONS:
 
 if __name__ == "__main__":
     main()
+
 
