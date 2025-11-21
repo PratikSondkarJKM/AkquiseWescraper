@@ -148,58 +148,106 @@ def auth_flow():
 # ---------------- TED SCRAPER FUNCTIONS ----------------
 def fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_country, json_file):
     """
-    Modified to include keyword search using FT (full text) parameter
+    Fetch TED notices with corrected API query syntax
     """
-    # Build query parts
-    query_parts = [
-        f"(publication-date >={date_start}<={date_end})",
-        f"(buyer-country IN ({buyer_country}))"
-    ]
+    query_parts = []
     
-    # Add CPV codes if provided
+    # Date range - REQUIRED
+    query_parts.append(f"PD=[{date_start} <> {date_end}]")
+    
+    # Buyer country - REQUIRED
+    query_parts.append(f"CY=[{buyer_country}]")
+    
+    # CPV codes - OPTIONAL
     if cpv_codes and cpv_codes.strip():
-        query_parts.append(f"(classification-cpv IN ({cpv_codes}))")
+        # Split by space and format each code
+        codes_list = cpv_codes.strip().split()
+        if len(codes_list) == 1:
+            query_parts.append(f"PC=[{codes_list[0]}]")
+        else:
+            # Multiple CPV codes with OR
+            codes_formatted = " or ".join(codes_list)
+            query_parts.append(f"PC=[{codes_formatted}]")
     
-    # Add keyword search if provided
+    # Keywords - OPTIONAL (Full text search)
     if keywords and keywords.strip():
-        # Use FT (full text) search for keywords
-        query_parts.append(f"(FT={keywords})")
+        # Clean keywords - remove special characters
+        clean_keywords = keywords.strip().replace('"', '').replace("'", "")
+        # For phrases, use TD (title/description) field
+        query_parts.append(f"TD=[{clean_keywords}]")
     
-    # Add notice type filter
-    query_parts.append("(notice-type IN (pin-cfc-standard pin-cfc-social qu-sy cn-standard cn-social subco cn-desg))")
+    # Notice types - business opportunities
+    query_parts.append("TD=[pin-cfc-standard or pin-cfc-social or qu-sy or cn-standard or cn-social or subco or cn-desg]")
     
+    # Join with AND
     query = " AND ".join(query_parts)
     
+    # Show query for debugging
+    st.info(f"🔍 Query: `{query}`")
+    
     payload = {
-        "query": query,
-        "fields": ["publication-number", "links"],
-        "scope": "ACTIVE",
-        "checkQuerySyntax": False,
-        "paginationMode": "PAGE_NUMBER",
-        "page": 1,
-        "limit": 100
+        "q": query,  # v3 uses "q" parameter
+        "fields": ["ND", "PD", "CONTENT"],
+        "scope": 2,  # 2 = ACTIVE notices
+        "pageNum": 1,
+        "pageSize": 100,
+        "reverseOrder": False,
+        "sortField": "PD"
     }
+    
     s = requests.Session()
-    s.headers.update({"Accept": "application/json"})
+    s.headers.update({
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    })
+    
     all_notices = []
     page = 1
+    
     while True:
         body = dict(payload)
-        body["page"] = page
-        r = s.post(API, json=body, timeout=60)
-        r.raise_for_status()
-        data = r.json()
-        notices = data.get("results") or data.get("items") or data.get("notices") or []
-        if not notices:
-            break
-        all_notices.extend(notices)
-        total = data.get("total") or data.get("totalCount")
-        if not notices or (total and page * payload["limit"] >= total):
-            break
-        page += 1
-        time.sleep(0.2)
+        body["pageNum"] = page
+        
+        try:
+            r = s.post(API, json=body, timeout=60)
+            
+            # Debug output
+            if r.status_code != 200:
+                st.error(f"❌ API Error {r.status_code}")
+                st.code(r.text)
+                r.raise_for_status()
+            
+            data = r.json()
+            
+            # Extract notices from response
+            notices = data.get("notices", [])
+            
+            if not notices:
+                break
+            
+            all_notices.extend(notices)
+            
+            # Check pagination
+            total = data.get("total", 0)
+            if len(all_notices) >= total:
+                break
+            
+            page += 1
+            time.sleep(0.3)
+            
+        except requests.exceptions.HTTPError as e:
+            st.error(f"❌ HTTP Error: {e}")
+            st.code(f"Query: {query}")
+            raise
+        except Exception as e:
+            st.error(f"❌ Unexpected error: {e}")
+            raise
+    
+    # Save to JSON
     with open(json_file, "w", encoding="utf-8") as f:
         json.dump({"notices": all_notices}, f, ensure_ascii=False, indent=2)
+    
+    return len(all_notices)
 
 def _get_links_block(notice: dict) -> dict:
     links = notice.get("links") or {}
@@ -435,16 +483,34 @@ def main_scraper(cpv_codes, keywords, date_start, date_end, buyer_country):
     Modified to return rows instead of saving to Excel directly
     """
     temp_json = tempfile.mktemp(suffix=".json")
-    fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_country, temp_json)
+    
+    # Fetch notices
+    count = fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_country, temp_json)
+    
+    if count == 0:
+        st.warning("⚠️ No notices found matching your criteria.")
+        return []
+    
     with open(temp_json, "r", encoding="utf-8") as f:
         data = json.load(f)
-    notices = data.get("results") or data.get("items") or data.get("notices") or []
+    
+    notices = data.get("notices", [])
+    
     s = requests.Session()
     rows = []
-    for n in notices:
-        pubno = n.get("publication-number")
+    
+    # Progress bar
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for idx, n in enumerate(notices):
+        pubno = n.get("ND") or n.get("publication-number")
         if not pubno:
             continue
+        
+        status_text.text(f"Processing {idx+1}/{len(notices)}: {pubno}")
+        progress_bar.progress((idx + 1) / len(notices))
+        
         try:
             xml_bytes = fetch_notice_xml(s, pubno, n)
             fields = parse_xml_fields(xml_bytes)
@@ -452,8 +518,13 @@ def main_scraper(cpv_codes, keywords, date_start, date_end, buyer_country):
             fields.setdefault("Ted-Link", f"https://ted.europa.eu/en/notice/-/detail/{pubno}")
             rows.append(fields)
         except Exception as e:
-            print(f"ERR {pubno}: {e}")
+            st.warning(f"⚠️ Error processing {pubno}: {e}")
+        
         time.sleep(0.25)
+    
+    progress_bar.empty()
+    status_text.empty()
+    
     os.remove(temp_json)
     return rows
 
@@ -485,7 +556,7 @@ def save_to_excel(rows, output_excel):
     ws.add_table(table)
     wb.save(output_excel)
 
-# ---------------- CHATBOT FUNCTIONS (keeping all existing code) ----------------
+# ---------------- CHATBOT FUNCTIONS ----------------
 def extract_text_from_pdf(file):
     try:
         pdf_reader = PyPDF2.PdfReader(file)
@@ -579,7 +650,7 @@ def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_n
 def main():
     st.set_page_config(page_title="TED Scraper & AI Assistant", layout="wide", initial_sidebar_state="collapsed")
     
-    # ChatGPT-style Custom CSS (keeping all existing CSS)
+    # ChatGPT-style Custom CSS
     st.markdown("""
     <style>
     /* ChatGPT-style theme */
@@ -791,6 +862,12 @@ def main():
             3. Click **🔍 Search Notices**
             4. Review and filter results in the table
             5. Click **⬇️ Download Filtered Results** to get Excel file
+            
+            **Search Field Codes:**
+            - `PD` = Publication Date
+            - `CY` = Country
+            - `PC` = CPV Code (Product/Service Classification)
+            - `TD` = Title/Description (keywords)
             """)
 
         # Search inputs
@@ -799,9 +876,9 @@ def main():
         col1, col2 = st.columns(2)
         with col1:
             keywords = st.text_input(
-                "🔤 Keywords (full text search)",
+                "🔤 Keywords (title/description search)",
                 placeholder="e.g., software development, construction, consulting",
-                help="Search across all notice text. Leave empty to search by CPV only."
+                help="Search in notice titles and descriptions. Leave empty to search by CPV only."
             )
         with col2:
             cpv_codes = st.text_input(
@@ -812,7 +889,7 @@ def main():
 
         col3, col4 = st.columns(2)
         with col3:
-            buyer_country = st.text_input("🌍 Buyer Country (ISO Alpha-3)", "DEU")
+            buyer_country = st.text_input("🌍 Buyer Country (ISO Alpha-3)", "DEU", help="e.g., DEU, FRA, ITA, ESP")
         with col4:
             today = date.today()
             date_col1, date_col2 = st.columns(2)
@@ -833,9 +910,14 @@ def main():
                     try:
                         rows = main_scraper(cpv_codes, keywords, date_start, date_end, buyer_country)
                         st.session_state.scraped_data = rows
-                        st.success(f"✅ Found {len(rows)} notices!")
+                        if len(rows) > 0:
+                            st.success(f"✅ Found {len(rows)} notices!")
+                        else:
+                            st.warning("⚠️ No results found. Try adjusting your search criteria.")
                     except Exception as e:
                         st.error(f"❌ Error during search: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
 
         # Display results with filtering
         if st.session_state.scraped_data:
@@ -945,7 +1027,7 @@ def main():
                         if os.path.exists(temp_excel.name):
                             os.remove(temp_excel.name)
     
-    # ============= TAB 2: CHATBOT (keeping all existing code) =============
+    # ============= TAB 2: CHATBOT =============
     with tab2:
         # Sidebar for document library
         with st.sidebar:
