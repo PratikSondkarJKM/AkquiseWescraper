@@ -145,12 +145,31 @@ def auth_flow():
         st.stop()
     return True
 
-# ---------------- TED SCRAPER FUNCTIONS (keeping all existing code) ----------------
-def fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, json_file):
-    query = (
-        f"(publication-date >={date_start}<={date_end}) AND (buyer-country IN ({buyer_country})) "
-        f"AND (classification-cpv IN ({cpv_codes})) AND (notice-type IN (pin-cfc-standard pin-cfc-social qu-sy cn-standard cn-social subco cn-desg))"
-    )
+# ---------------- TED SCRAPER FUNCTIONS ----------------
+def fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_country, json_file):
+    """
+    Modified to include keyword search using FT (full text) parameter
+    """
+    # Build query parts
+    query_parts = [
+        f"(publication-date >={date_start}<={date_end})",
+        f"(buyer-country IN ({buyer_country}))"
+    ]
+    
+    # Add CPV codes if provided
+    if cpv_codes and cpv_codes.strip():
+        query_parts.append(f"(classification-cpv IN ({cpv_codes}))")
+    
+    # Add keyword search if provided
+    if keywords and keywords.strip():
+        # Use FT (full text) search for keywords
+        query_parts.append(f"(FT={keywords})")
+    
+    # Add notice type filter
+    query_parts.append("(notice-type IN (pin-cfc-standard pin-cfc-social qu-sy cn-standard cn-social subco cn-desg))")
+    
+    query = " AND ".join(query_parts)
+    
     payload = {
         "query": query,
         "fields": ["publication-number", "links"],
@@ -411,9 +430,12 @@ def parse_xml_fields(xml_bytes: bytes) -> dict:
 
     return out
 
-def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
+def main_scraper(cpv_codes, keywords, date_start, date_end, buyer_country):
+    """
+    Modified to return rows instead of saving to Excel directly
+    """
     temp_json = tempfile.mktemp(suffix=".json")
-    fetch_all_notices_to_json(cpv_codes, date_start, date_end, buyer_country, temp_json)
+    fetch_all_notices_to_json(cpv_codes, keywords, date_start, date_end, buyer_country, temp_json)
     with open(temp_json, "r", encoding="utf-8") as f:
         data = json.load(f)
     notices = data.get("results") or data.get("items") or data.get("notices") or []
@@ -432,6 +454,11 @@ def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
         except Exception as e:
             print(f"ERR {pubno}: {e}")
         time.sleep(0.25)
+    os.remove(temp_json)
+    return rows
+
+def save_to_excel(rows, output_excel):
+    """Save filtered rows to Excel with table formatting"""
     wb = openpyxl.Workbook()
     ws = wb.active
     headers = [
@@ -457,9 +484,8 @@ def main_scraper(cpv_codes, date_start, date_end, buyer_country, output_excel):
     table.tableStyleInfo = style
     ws.add_table(table)
     wb.save(output_excel)
-    os.remove(temp_json)
 
-# ---------------- CHATBOT FUNCTIONS ----------------
+# ---------------- CHATBOT FUNCTIONS (keeping all existing code) ----------------
 def extract_text_from_pdf(file):
     try:
         pdf_reader = PyPDF2.PdfReader(file)
@@ -494,7 +520,6 @@ def extract_text_from_excel(file):
         else:  # xlsx or xls
             df = pd.read_excel(file)
         
-        # Convert DataFrame to readable text format
         text = f"Excel File: {file.name}\n"
         text += f"Rows: {len(df)}, Columns: {len(df.columns)}\n\n"
         text += f"Column Names: {', '.join(df.columns.tolist())}\n\n"
@@ -509,7 +534,6 @@ def extract_text_from_image(file):
     try:
         image = Image.open(file)
         
-        # Get image info
         text = f"Image File: {file.name}\n"
         text += f"Format: {image.format}\n"
         text += f"Size: {image.size[0]}x{image.size[1]} pixels\n"
@@ -551,12 +575,11 @@ def get_azure_chatbot_response(messages, azure_endpoint, azure_key, deployment_n
     )
     return stream
 
-
 # ------------------- MAIN APP -------------------
 def main():
     st.set_page_config(page_title="TED Scraper & AI Assistant", layout="wide", initial_sidebar_state="collapsed")
     
-    # ChatGPT-style Custom CSS + Thinking animation
+    # ChatGPT-style Custom CSS (keeping all existing CSS)
     st.markdown("""
     <style>
     /* ChatGPT-style theme */
@@ -572,7 +595,6 @@ def main():
         background-color: #202123;
     }
     
-    /* Main container */
     .main .block-container {
         padding-top: 2rem !important;
         padding-bottom: 2rem !important;
@@ -580,7 +602,6 @@ def main():
         margin: 0 auto !important;
     }
     
-    /* Chat message styling */
     .stChatMessage {
         background-color: transparent !important;
         padding: 1.5rem 0 !important;
@@ -593,12 +614,10 @@ def main():
         color: #ececf1 !important;
     }
     
-    /* User message - darker background */
     [data-testid="stChatMessage"][data-testid*="user"] [data-testid="stChatMessageContent"] {
         background-color: #343541 !important;
     }
     
-    /* Thinking animation */
     .thinking-indicator {
         font-style: italic;
         color: #8e8ea0;
@@ -617,7 +636,6 @@ def main():
         60%, 100% { content: '...'; }
     }
     
-    /* Input field styling */
     [data-testid="stChatInput"] textarea {
         background-color: #40414f !important;
         color: #ececf1 !important;
@@ -642,7 +660,6 @@ def main():
         border: none !important;
     }
     
-    /* Text and headers */
     .stMarkdown, .stText {
         color: #ececf1 !important;
     }
@@ -651,7 +668,6 @@ def main():
         color: #ececf1 !important;
     }
     
-    /* Buttons */
     .stButton button {
         background-color: #10a37f !important;
         color: white !important;
@@ -665,21 +681,18 @@ def main():
         background-color: #1a7f64 !important;
     }
     
-    /* Avatar styling */
     [data-testid="stChatMessage"] img {
         border-radius: 0.25rem !important;
         width: 32px !important;
         height: 32px !important;
     }
     
-    /* Success/Info/Warning boxes */
     .stSuccess, .stInfo, .stWarning {
         background-color: #444654 !important;
         color: #ececf1 !important;
         border-radius: 0.5rem !important;
     }
     
-    /* Tabs */
     .stTabs [data-baseweb="tab-list"] {
         gap: 2rem;
         background-color: #343541;
@@ -699,7 +712,6 @@ def main():
         color: #10a37f !important;
     }
     
-    /* Input fields */
     .stTextInput input, .stDateInput input, .stSelectbox select {
         background-color: #40414f !important;
         color: #ececf1 !important;
@@ -707,25 +719,21 @@ def main():
         border-radius: 0.375rem !important;
     }
     
-    /* Labels */
     label {
         color: #ececf1 !important;
     }
     
-    /* Download button */
     .stDownloadButton button {
         background-color: #10a37f !important;
         color: white !important;
     }
     
-    /* Expander */
     .streamlit-expanderHeader {
         background-color: #444654 !important;
         color: #ececf1 !important;
         border-radius: 0.5rem !important;
     }
     
-    /* File uploader styling */
     [data-testid="stFileUploader"] {
         background-color: transparent !important;
         border: none !important;
@@ -743,8 +751,13 @@ def main():
     [data-testid="stFileUploader"] button {
         background-color: #565869 !important;
         color: #ececf1 !important;
-            font-size: 0.875rem !important;
-            padding: 0.25rem 0.5rem !important;
+        font-size: 0.875rem !important;
+        padding: 0.25rem 0.5rem !important;
+    }
+    
+    /* Data editor styling */
+    [data-testid="stDataFrame"] {
+        background-color: #40414f !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -752,77 +765,195 @@ def main():
     # Authentication guard
     auth_flow()
     
+    # Initialize session state for scraped data
+    if "scraped_data" not in st.session_state:
+        st.session_state.scraped_data = None
+    
     # Create tabs after authentication
     tab1, tab2 = st.tabs(["📄 TED Scraper", "💬 AI Assistant"])
     
     # ============= TAB 1: TED SCRAPER =============
     with tab1:
         st.header("📄 TED EU Notice Scraper")
-        st.write("Download TED procurement notices to Excel (data is exported as a table for Power Automate).")
+        st.write("Search and filter TED procurement notices before downloading.")
         
         with st.expander("ℹ️ How this works / Instructions", expanded=False):
             st.write("""
-            1. Enter your filters (CPV, date range, country, filename).
-            2. Click **Run Scraper**. The script downloads notices and attachments, saves an Excel file.
-            3. Use the download button to save the Excel file wherever you want!
-            4. The exported file now contains an Excel table named 'TEDData', ready for Power Automate!
+            **NEW FEATURES:**
+            - 🔍 Search by **keywords** OR **CPV codes** OR **both**
+            - 👀 **Preview results** before downloading
+            - 🎯 **Filter results** by columns (Beschaffer, Region, etc.)
+            - ⬇️ **Download only filtered data**
+            
+            **Steps:**
+            1. Enter your search criteria (keywords and/or CPV codes)
+            2. Set date range and country
+            3. Click **🔍 Search Notices**
+            4. Review and filter results in the table
+            5. Click **⬇️ Download Filtered Results** to get Excel file
             """)
 
-        c1, c2 = st.columns(2)
-        with c1:
-            cpv_codes = st.text_input(
-                "🔎 CPV Codes (space separated)",
-                "71541000 71500000 71240000 79421000 71000000 71248000 71312000 71700000 71300000 71520000 71250000 90712000 71313000",
+        # Search inputs
+        st.subheader("🔍 Search Criteria")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            keywords = st.text_input(
+                "🔤 Keywords (full text search)",
+                placeholder="e.g., software development, construction, consulting",
+                help="Search across all notice text. Leave empty to search by CPV only."
             )
-        with c2:
-            buyer_country = st.text_input("🌍 Buyer Country (ISO Alpha-3)", "DEU")
+        with col2:
+            cpv_codes = st.text_input(
+                "🏷️ CPV Codes (space separated)",
+                "71541000 71500000 71240000 79421000 71000000 71248000 71312000 71700000 71300000 71520000 71250000 90712000 71313000",
+                help="Classification codes. Leave empty to search by keywords only."
+            )
 
-        today = date.today()
-        date_col1, date_col2 = st.columns(2)
-        with date_col1:
-            start_date_obj = st.date_input("📆 Start Publication Date", value=today)
-        with date_col2:
-            end_date_obj = st.date_input("📆 End Publication Date", value=today)
+        col3, col4 = st.columns(2)
+        with col3:
+            buyer_country = st.text_input("🌍 Buyer Country (ISO Alpha-3)", "DEU")
+        with col4:
+            today = date.today()
+            date_col1, date_col2 = st.columns(2)
+            with date_col1:
+                start_date_obj = st.date_input("📆 Start Date", value=today)
+            with date_col2:
+                end_date_obj = st.date_input("📆 End Date", value=today)
 
         date_start = start_date_obj.strftime("%Y%m%d")
         date_end = end_date_obj.strftime("%Y%m%d")
 
-        output_excel = st.text_input(
-            "💾 Output Excel filename",
-            f"ted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-        )
+        # Search button
+        if st.button("🔍 Search Notices", type="primary"):
+            if not keywords.strip() and not cpv_codes.strip():
+                st.error("❌ Please enter either keywords or CPV codes (or both)!")
+            else:
+                with st.spinner("Searching TED database... This may take a few minutes."):
+                    try:
+                        rows = main_scraper(cpv_codes, keywords, date_start, date_end, buyer_country)
+                        st.session_state.scraped_data = rows
+                        st.success(f"✅ Found {len(rows)} notices!")
+                    except Exception as e:
+                        st.error(f"❌ Error during search: {e}")
 
-        if st.button("▶️ Run Scraper"):
-            st.info("Scraping... Please wait (can take a few minutes).")
-            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_excel:
+        # Display results with filtering
+        if st.session_state.scraped_data:
+            st.markdown("---")
+            st.subheader("📊 Search Results")
+            
+            df = pd.DataFrame(st.session_state.scraped_data)
+            
+            # Display count
+            st.info(f"📈 Total Results: **{len(df)}** notices")
+            
+            # Filter options
+            with st.expander("🎯 Filter Results", expanded=True):
+                filter_col1, filter_col2, filter_col3 = st.columns(3)
+                
+                with filter_col1:
+                    if "Beschaffer" in df.columns:
+                        beschaffer_options = ["All"] + sorted(df["Beschaffer"].dropna().unique().tolist())
+                        selected_beschaffer = st.selectbox("Filter by Beschaffer", beschaffer_options)
+                    else:
+                        selected_beschaffer = "All"
+                
+                with filter_col2:
+                    if "Ort/Region" in df.columns:
+                        region_options = ["All"] + sorted(df["Ort/Region"].dropna().unique().tolist())
+                        selected_region = st.selectbox("Filter by Region", region_options)
+                    else:
+                        selected_region = "All"
+                
+                with filter_col3:
+                    if "Projektvolumen" in df.columns:
+                        volume_filter = st.text_input("Min Volume (EUR)", placeholder="e.g., 100000")
+                    else:
+                        volume_filter = ""
+            
+            # Apply filters
+            filtered_df = df.copy()
+            
+            if selected_beschaffer != "All":
+                filtered_df = filtered_df[filtered_df["Beschaffer"] == selected_beschaffer]
+            
+            if selected_region != "All":
+                filtered_df = filtered_df[filtered_df["Ort/Region"] == selected_region]
+            
+            if volume_filter:
                 try:
-                    main_scraper(cpv_codes, date_start, date_end, buyer_country, temp_excel.name)
-                    st.success("✅ Done! Download your Excel file below.")
-                    with open(temp_excel.name, "rb") as f:
-                        st.download_button(
-                            label="⬇️ Download Excel",
-                            data=f.read(),
-                            file_name=output_excel,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-                except Exception as e:
-                    st.error(f"❌ Error during scraping: {e}")
-                finally:
-                    temp_excel.close()
-                    if os.path.exists(temp_excel.name):
-                        os.remove(temp_excel.name)
+                    min_volume = float(volume_filter)
+                    # Extract numeric values from Projektvolumen
+                    filtered_df["volume_numeric"] = filtered_df["Projektvolumen"].str.extract(r'([\d,.]+)')[0].str.replace(',', '').astype(float, errors='ignore')
+                    filtered_df = filtered_df[filtered_df["volume_numeric"] >= min_volume]
+                    filtered_df = filtered_df.drop(columns=["volume_numeric"])
+                except:
+                    st.warning("⚠️ Invalid volume filter")
+            
+            st.info(f"🎯 Filtered Results: **{len(filtered_df)}** notices")
+            
+            # Display dataframe with selection
+            st.dataframe(
+                filtered_df,
+                use_container_width=True,
+                height=400,
+                column_config={
+                    "Ted-Link": st.column_config.LinkColumn("TED Link"),
+                    "Vergabeplattform": st.column_config.LinkColumn("Platform")
+                }
+            )
+            
+            # Download buttons
+            col_dl1, col_dl2 = st.columns(2)
+            
+            with col_dl1:
+                # Download filtered results
+                if len(filtered_df) > 0:
+                    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_excel:
+                        try:
+                            filtered_rows = filtered_df.to_dict('records')
+                            save_to_excel(filtered_rows, temp_excel.name)
+                            
+                            with open(temp_excel.name, "rb") as f:
+                                st.download_button(
+                                    label=f"⬇️ Download Filtered Results ({len(filtered_df)} notices)",
+                                    data=f.read(),
+                                    file_name=f"ted_filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    type="primary"
+                                )
+                        finally:
+                            temp_excel.close()
+                            if os.path.exists(temp_excel.name):
+                                os.remove(temp_excel.name)
+            
+            with col_dl2:
+                # Download all results
+                with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_excel:
+                    try:
+                        save_to_excel(st.session_state.scraped_data, temp_excel.name)
+                        
+                        with open(temp_excel.name, "rb") as f:
+                            st.download_button(
+                                label=f"⬇️ Download All Results ({len(df)} notices)",
+                                data=f.read(),
+                                file_name=f"ted_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+                    finally:
+                        temp_excel.close()
+                        if os.path.exists(temp_excel.name):
+                            os.remove(temp_excel.name)
     
-    # ============= TAB 2: CHATBOT =============
+    # ============= TAB 2: CHATBOT (keeping all existing code) =============
     with tab2:
         # Sidebar for document library
         with st.sidebar:
-            # Get Azure credentials from secrets
             azure_endpoint = get_secret("AZURE_ENDPOINT", "")
             azure_key = get_secret("AZURE_API_KEY", "")
             deployment_name = get_secret("DEPLOYMENT_NAME", "gpt-4o-mini")
             api_version = "2024-08-01-preview"
             
-            # Show configuration status
             st.markdown("## 🔑 Configuration")
             if azure_endpoint and azure_key:
                 st.success("✅ Azure AI Connected")
@@ -839,11 +970,9 @@ def main():
             st.markdown("## 📚 Document Library")
             st.caption("Optional: Upload files for context")
             
-            # Initialize document store
             if "document_store" not in st.session_state:
                 st.session_state.document_store = {}
             
-            # File uploader in sidebar
             library_files = st.file_uploader(
                 "Upload Documents", 
                 type=['pdf', 'docx', 'txt', 'xlsx', 'xls', 'csv', 'png', 'jpg', 'jpeg'],
@@ -873,7 +1002,6 @@ def main():
                             del st.session_state.document_store[doc_name]
                             st.rerun()
             
-            # Clear chat button
             st.markdown("---")
             if st.button("🗑️ Clear Chat", use_container_width=True):
                 st.session_state.chat_messages = []
@@ -891,11 +1019,9 @@ def main():
             ```
             """)
         else:
-            # Initialize chat history
             if "chat_messages" not in st.session_state:
                 st.session_state.chat_messages = []
             
-            # Display welcome message - USING JKM LOGO FOR ASSISTANT
             if not st.session_state.chat_messages:
                 with st.chat_message("assistant", avatar=JKM_LOGO_URL):
                     st.markdown("""
@@ -912,13 +1038,11 @@ def main():
                     Stellen Sie mir einfach eine Frage!
                     """)
             
-            # Display chat history - SWAPPED AVATARS
             for message in st.session_state.chat_messages:
                 avatar = JKM_LOGO_URL if message["role"] == "assistant" else BOT_AVATAR_URL
                 with st.chat_message(message["role"], avatar=avatar):
                     st.markdown(message["content"])
             
-            # File uploader BEFORE chat input
             st.markdown("---")
             quick_file = st.file_uploader(
                 "📎 Drag and drop file here or click to browse", 
@@ -936,9 +1060,7 @@ def main():
                             st.success(f"✅ {quick_file.name} added")
                             st.rerun()
             
-            # Chat input
             if prompt := st.chat_input("Message JKM AI Assistant..."):
-                # Prepare context
                 context_parts = []
                 
                 if st.session_state.document_store:
@@ -948,17 +1070,14 @@ def main():
                     ])
                     context_parts.append(library_context)
                 
-                # Add user message with BOT AVATAR
                 st.session_state.chat_messages.append({"role": "user", "content": prompt})
                 with st.chat_message("user", avatar=BOT_AVATAR_URL):
                     st.markdown(prompt)
                 
-                # Show "thinking" indicator with JKM LOGO
                 with st.chat_message("assistant", avatar=JKM_LOGO_URL):
                     thinking_placeholder = st.empty()
                     thinking_placeholder.markdown('<div class="thinking-indicator"><span class="thinking-dots">💭 AI denkt nach</span></div>', unsafe_allow_html=True)
                     
-                    # Prepare system message
                     if context_parts:
                         full_context = "\n\n".join(context_parts)
                         system_content = f"""You are JKM AI Assistant - a helpful AI assistant for tenders, procurement documents, and general tasks.
@@ -990,7 +1109,6 @@ INSTRUCTIONS:
                         for m in st.session_state.chat_messages
                     ]
                     
-                    # Get response
                     try:
                         stream = get_azure_chatbot_response(
                             api_messages, 
@@ -1000,7 +1118,6 @@ INSTRUCTIONS:
                             api_version
                         )
                         
-                        # Collect full response with error handling
                         response_text = ""
                         for chunk in stream:
                             if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
@@ -1008,7 +1125,6 @@ INSTRUCTIONS:
                                     if chunk.choices[0].delta.content:
                                         response_text += chunk.choices[0].delta.content
                         
-                        # Clear thinking indicator and show response
                         thinking_placeholder.empty()
                         st.markdown(response_text)
                         
@@ -1021,6 +1137,3 @@ INSTRUCTIONS:
 
 if __name__ == "__main__":
     main()
-
-
-
